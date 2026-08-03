@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "727278031097",
+    "project_id": "splitup-76ba6",
+    "storage_bucket": "splitup-76ba6.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:727278031097:android:aab90bdd681c575d359228",
+        "android_client_info": {
+          "package_name": "com.example.splitup"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "727278031097-lmudkvvel4ll2um47uqji0ji1oe6qfnb.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.splitup",
+            "certificate_hash": "d794d35d83f57d507dc54b1be4cafa3fa333a610"
+          }
+        },
+        {
+          "client_id": "727278031097-6ifoi74oc7ec2ph2ns0bq4mnrb1a4nf5.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBvGoQL4P1e8e3FghFIyQqBpBKo8rQ6Wl0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "727278031097-6ifoi74oc7ec2ph2ns0bq4mnrb1a4nf5.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "727278031097-b2o4hlajot011lbctjdenese7g40bp2f.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.splitup"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
