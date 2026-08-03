@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 
 import '../../models/group_model.dart';
 import '../../services/expense_service.dart';
+import '../../models/scanned_receipt.dart';
+import 'receipt_scanner_screen.dart';
 
 class AddExpenseScreen extends StatefulWidget {
   final GroupModel group;
@@ -210,6 +212,12 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                OutlinedButton.icon(
+                  onPressed: _isLoading ? null : _scanReceipt,
+                  icon: const Icon(Icons.document_scanner_outlined),
+                  label: const Text('Scan Receipt'),
+                ),
+                const SizedBox(height: 16),
                 TextFormField(
                   controller: _titleController,
                   enabled: !_isLoading,
@@ -438,6 +446,29 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     }
 
     return amount / _selectedMembers.length;
+  }
+
+  Future<void> _scanReceipt() async {
+    final result = await Navigator.of(context).push<ScannedReceipt>(
+      MaterialPageRoute(
+        builder: (_) => const ReceiptScannerScreen(),
+      ),
+    );
+
+    if (result == null || !mounted) {
+      return;
+    }
+
+    setState(() {
+      if (result.merchantName.isNotEmpty) {
+        _titleController.text = result.merchantName;
+      }
+
+      if (result.total != null) {
+        _amountController.text =
+            result.total!.toStringAsFixed(2);
+      }
+    });
   }
 }
 
