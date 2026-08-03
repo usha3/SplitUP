@@ -6,6 +6,9 @@ import 'package:flutter/material.dart';
 import '../../models/analytics_data.dart';
 import '../../services/analytics_service.dart';
 
+import '../../models/spending_insight.dart';
+import '../../services/insight_service.dart';
+
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
 
@@ -17,6 +20,8 @@ class AnalyticsScreen extends StatefulWidget {
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
   final AnalyticsService _analyticsService =
   AnalyticsService();
+
+  final InsightService _insightService = InsightService();
 
   late Future<AnalyticsData> _analyticsFuture;
 
@@ -67,6 +72,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           final data =
               snapshot.data ?? const AnalyticsData.empty();
 
+          final insights =
+          _insightService.generateInsights(data);
+
           return RefreshIndicator(
             onRefresh: _refresh,
             child: ListView(
@@ -76,6 +84,25 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               const EdgeInsets.fromLTRB(16, 16, 16, 40),
               children: [
                 _OverviewCard(data: data),
+                const SizedBox(height: 24),
+                Text(
+                  'Smart insights',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleLarge
+                      ?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ...insights.map(
+                      (insight) => Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _SpendingInsightCard(
+                      insight: insight,
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 20),
                 Text(
                   'Monthly spending',
@@ -486,6 +513,74 @@ class _EmptyChart extends StatelessWidget {
             Text(
               message,
               textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+class _SpendingInsightCard extends StatelessWidget {
+  final SpendingInsight insight;
+
+  const _SpendingInsightCard({
+    required this.insight,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
+    final backgroundColor = switch (insight.type) {
+      InsightType.positive => colors.primaryContainer,
+      InsightType.warning => colors.errorContainer,
+      InsightType.information => colors.secondaryContainer,
+    };
+
+    final foregroundColor = switch (insight.type) {
+      InsightType.positive => colors.onPrimaryContainer,
+      InsightType.warning => colors.onErrorContainer,
+      InsightType.information => colors.onSecondaryContainer,
+    };
+
+    return Card(
+      color: backgroundColor,
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CircleAvatar(
+              backgroundColor: colors.surface,
+              child: Icon(
+                insight.icon,
+                color: foregroundColor,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    insight.title,
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleMedium
+                        ?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: foregroundColor,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    insight.message,
+                    style: TextStyle(
+                      color: foregroundColor,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
