@@ -12,6 +12,7 @@ import '../../services/user_service.dart';
 import 'add_expense_screen.dart';
 import 'edit_expense_screen.dart';
 import 'manage_members_screen.dart';
+import 'group_report_screen.dart';
 
 class GroupDetailsScreen extends StatelessWidget {
   final GroupModel group;
@@ -226,6 +227,48 @@ class GroupDetailsScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: Text(group.name),
+        actions: [
+          IconButton(
+            tooltip: 'Reports',
+            icon: const Icon(Icons.assessment_outlined),
+            onPressed: () async {
+              final expenseService = ExpenseService();
+              final settlementService = SettlementService();
+              final userService = UserService();
+
+              final expenses = await expenseService
+                  .getGroupExpenses(group.id)
+                  .first;
+
+              final settlements = await settlementService
+                  .getGroupSettlements(group.id)
+                  .first;
+
+              final users =
+              await userService.getUsersByIds(group.members);
+
+              final memberNames = <String, String>{};
+
+              users.forEach((id, user) {
+                memberNames[id] = user.name;
+              });
+
+              if (!context.mounted) return;
+
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => GroupReportScreen(
+                    group: group,
+                    expenses: expenses,
+                    settlements: settlements,
+                    memberNames: memberNames,
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
