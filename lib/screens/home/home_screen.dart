@@ -13,6 +13,8 @@ import '../../providers/theme_provider.dart';
 import '../profile/change_password_screen.dart';
 import '../profile/edit_profile_screen.dart';
 import '../analytics/analytics_screen.dart';
+import '../../services/notification_service.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -24,8 +26,19 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final DashboardService _dashboardService = DashboardService();
   final GroupService _groupService = GroupService();
+  final NotificationService _notificationService =
+  NotificationService();
 
   int _selectedIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initializeNotifications();
+    });
+  }
 
   Future<void> _logout() async {
     await FirebaseAuth.instance.signOut();
@@ -37,6 +50,47 @@ class _HomeScreenState extends State<HomeScreen> {
         builder: (_) => const CreateGroupScreen(),
       ),
     );
+  }
+
+  Future<void> _initializeNotifications() async {
+    await _notificationService.initialize(
+      onForegroundMessage: (message) {
+        debugPrint(
+          'Foreground notification received: ${message.messageId}',
+        );
+
+        // NotificationService now displays the Android
+        // heads-up notification, so no SnackBar is needed here.
+      },
+      onNotificationOpened: (message) {
+        if (!mounted) return;
+
+        _handleNotificationNavigation(message);
+      },
+    );
+
+    final token = await _notificationService.getToken();
+    debugPrint('FCM TOKEN: $token');
+  }
+
+  void _handleNotificationNavigation(
+      RemoteMessage message,
+      ) {
+    final type = message.data['type'];
+    final groupId = message.data['groupId'];
+
+    debugPrint(
+      'Notification opened: type=$type, groupId=$groupId',
+    );
+
+    // We will connect group navigation after the
+    // server notification payload is implemented.
+  }
+
+  @override
+  void dispose() {
+    _notificationService.dispose();
+    super.dispose();
   }
 
   @override
