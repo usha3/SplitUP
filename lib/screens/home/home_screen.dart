@@ -93,6 +93,14 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
+  Future<void> _refreshProfile() async {
+    await FirebaseAuth.instance.currentUser?.reload();
+
+    if (!mounted) return;
+
+    setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
@@ -100,6 +108,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final displayName = user?.displayName?.trim().isNotEmpty == true
         ? user!.displayName!.trim()
         : 'Usha';
+
+    final photoUrl = user?.photoURL ?? '';
 
     return Scaffold(
       appBar: AppBar(
@@ -144,6 +154,7 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           _DashboardTab(
             displayName: displayName,
+            photoUrl: photoUrl,
             dashboardService: _dashboardService,
             groupService: _groupService,
             onCreateGroup: _openCreateGroup,
@@ -155,7 +166,9 @@ class _HomeScreenState extends State<HomeScreen> {
           _ProfileTab(
             displayName: displayName,
             email: user?.email ?? '',
+            photoUrl: photoUrl,
             onLogout: _logout,
+            onProfileUpdated: _refreshProfile,
           ),
         ],
       ),
@@ -200,12 +213,14 @@ class _DashboardTab extends StatelessWidget {
   final DashboardService dashboardService;
   final GroupService groupService;
   final VoidCallback onCreateGroup;
+  final String photoUrl;
 
   const _DashboardTab({
     required this.displayName,
     required this.dashboardService,
     required this.groupService,
     required this.onCreateGroup,
+    required this.photoUrl,
   });
 
   @override
@@ -216,6 +231,7 @@ class _DashboardTab extends StatelessWidget {
         children: [
           _GreetingHeader(
             displayName: displayName,
+            photoUrl: photoUrl,
           ),
           const SizedBox(height: 24),
 
@@ -392,9 +408,11 @@ class _DashboardTab extends StatelessWidget {
 
 class _GreetingHeader extends StatelessWidget {
   final String displayName;
+  final String photoUrl;
 
   const _GreetingHeader({
     required this.displayName,
+    required this.photoUrl,
   });
 
   @override
@@ -441,7 +459,11 @@ class _GreetingHeader extends StatelessWidget {
           radius: 28,
           backgroundColor:
           Theme.of(context).colorScheme.primaryContainer,
-          child: Text(
+          backgroundImage: photoUrl.trim().isNotEmpty
+              ? NetworkImage(photoUrl)
+              : null,
+          child: photoUrl.trim().isEmpty
+              ? Text(
             displayName.isEmpty
                 ? '?'
                 : displayName[0].toUpperCase(),
@@ -454,7 +476,8 @@ class _GreetingHeader extends StatelessWidget {
                   .colorScheme
                   .onPrimaryContainer,
             ),
-          ),
+          )
+              : null,
         ),
       ],
     );
@@ -1008,11 +1031,15 @@ class _ProfileTab extends StatelessWidget {
   final String displayName;
   final String email;
   final Future<void> Function() onLogout;
+  final String photoUrl;
+  final Future<void> Function() onProfileUpdated;
 
   const _ProfileTab({
     required this.displayName,
     required this.email,
     required this.onLogout,
+    required this.photoUrl,
+    required this.onProfileUpdated,
   });
 
   static String _themeModeLabel(ThemeMode mode) {
@@ -1089,7 +1116,11 @@ class _ProfileTab extends StatelessWidget {
           radius: 48,
           backgroundColor:
           Theme.of(context).colorScheme.primaryContainer,
-          child: Text(
+          backgroundImage: photoUrl.trim().isNotEmpty
+              ? NetworkImage(photoUrl)
+              : null,
+          child: photoUrl.trim().isEmpty
+              ? Text(
             displayName.isEmpty
                 ? '?'
                 : displayName[0].toUpperCase(),
@@ -1099,7 +1130,8 @@ class _ProfileTab extends StatelessWidget {
                 ?.copyWith(
               fontWeight: FontWeight.bold,
             ),
-          ),
+          )
+              : null,
         ),
         const SizedBox(height: 14),
         Text(
@@ -1140,7 +1172,15 @@ class _ProfileTab extends StatelessWidget {
                     ),
                   );
 
-                  if (updated == true && context.mounted) {
+                  if (!context.mounted) return;
+
+                  // Always reload because the photo may have been uploaded
+                  // even when the screen was closed using the Back button.
+                  await onProfileUpdated();
+
+                  if (!context.mounted) return;
+
+                  if (updated == true) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text('Profile updated.'),

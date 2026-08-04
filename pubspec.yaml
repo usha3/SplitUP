@@ -49,6 +49,8 @@ dependencies:
   csv: ^8.0.0
   path_provider: ^2.1.6
   share_plus: ^13.3.0
+  firebase_storage: ^13.4.6
+  image_cropper: ^12.2.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
