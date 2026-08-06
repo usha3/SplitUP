@@ -9,9 +9,15 @@ import '../../services/analytics_service.dart';
 import '../../models/spending_insight.dart';
 import '../../services/insight_service.dart';
 
-class AnalyticsScreen extends StatefulWidget {
-  const AnalyticsScreen({super.key});
+import '../../utils/currency_formatter.dart';
 
+class AnalyticsScreen extends StatefulWidget {
+  final String currencyCode;
+
+  const AnalyticsScreen({
+    super.key,
+    this.currencyCode = 'USD',
+  });
   @override
   State<AnalyticsScreen> createState() =>
       _AnalyticsScreenState();
@@ -44,7 +50,25 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Analytics'),
+        titleSpacing: 0,
+        title: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Analytics',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            Text(
+              'Your spending overview',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.normal,
+              ),
+            ),
+          ],
+        ),
       ),
       body: FutureBuilder<AnalyticsData>(
         future: _analyticsFuture,
@@ -72,8 +96,84 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           final data =
               snapshot.data ?? const AnalyticsData.empty();
 
+          if (data.expenseCount == 0) {
+            return RefreshIndicator(
+              onRefresh: _refresh,
+              child: ListView(
+                padding: const EdgeInsets.all(24),
+                children: [
+                  const SizedBox(height: 100),
+                  TweenAnimationBuilder<double>(
+                    tween: Tween(begin: 0.75, end: 1),
+                    duration: const Duration(milliseconds: 550),
+                    curve: Curves.easeOutBack,
+                    builder: (context, scale, child) {
+                      return Transform.scale(
+                        scale: scale,
+                        child: child,
+                      );
+                    },
+                    child: Icon(
+                      Icons.insights_outlined,
+                      size: 72,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .primary
+                          .withValues(alpha: 0.75),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  Text(
+                    'No spending yet',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context)
+                        .textTheme
+                        .headlineSmall
+                        ?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Create your first expense to see '
+                        'analytics and smart insights.',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodyLarge,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'After adding an expense, pull down here to refresh.',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodySmall
+                        ?.copyWith(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+                  Center(
+                    child: FilledButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).pop(true);
+                      },
+                      icon: const Icon(Icons.add_rounded),
+                      label: const Text('Add your first expense'),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+
           final insights =
-          _insightService.generateInsights(data);
+          _insightService.generateInsights(
+            data,
+            currencyCode: widget.currencyCode,
+          );
 
           return RefreshIndicator(
             onRefresh: _refresh,
@@ -83,7 +183,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               padding:
               const EdgeInsets.fromLTRB(16, 16, 16, 40),
               children: [
-                _OverviewCard(data: data),
+                _OverviewCard(
+                  data: data,
+                  currencyCode: widget.currencyCode,
+                ),
                 const SizedBox(height: 24),
                 Text(
                   'Smart insights',
@@ -116,6 +219,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 const SizedBox(height: 12),
                 _MonthlyChart(
                   monthlyTotals: data.monthlyTotals,
+                  currencyCode: widget.currencyCode,
                 ),
                 const SizedBox(height: 24),
                 Text(
@@ -130,6 +234,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 const SizedBox(height: 12),
                 _CategoryChart(
                   categoryTotals: data.categoryTotals,
+                  currencyCode: widget.currencyCode,
                 ),
               ],
             ),
@@ -142,9 +247,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
 class _OverviewCard extends StatelessWidget {
   final AnalyticsData data;
+  final String currencyCode;
 
   const _OverviewCard({
     required this.data,
+    required this.currencyCode,
   });
 
   @override
@@ -156,18 +263,23 @@ class _OverviewCard extends StatelessWidget {
           children: [
             Expanded(
               child: _OverviewItem(
-                label: 'Your total',
-                value:
-                '\$${data.totalSpending.toStringAsFixed(2)}',
                 icon: Icons.account_balance_wallet_outlined,
+                value: formatCurrency(
+                  data.totalSpending,
+                  currencyCode,
+                ),
+                label: 'Total spent',
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: _OverviewItem(
+                icon: Icons.pie_chart_outline_rounded,
+                value: data.topCategory == 'No data'
+                    ? 'No data'
+                    : '${data.topCategory} '
+                    '(${data.topCategoryPercentage.toStringAsFixed(0)}%)',
                 label: 'Top category',
-                value: data.topCategory,
-                icon: Icons.category_outlined,
               ),
             ),
           ],
@@ -221,9 +333,11 @@ class _OverviewItem extends StatelessWidget {
 
 class _MonthlyChart extends StatelessWidget {
   final List<MonthlySpending> monthlyTotals;
+  final String currencyCode;
 
   const _MonthlyChart({
     required this.monthlyTotals,
+    required this.currencyCode,
   });
 
   @override
@@ -267,7 +381,10 @@ class _MonthlyChart extends StatelessWidget {
                       rodIndex,
                       ) {
                     return BarTooltipItem(
-                      '\$${rod.toY.toStringAsFixed(2)}',
+                      formatCurrency(
+                        rod.toY,
+                        currencyCode,
+                      ),
                       const TextStyle(
                         fontWeight: FontWeight.bold,
                       ),
@@ -290,7 +407,10 @@ class _MonthlyChart extends StatelessWidget {
                     reservedSize: 46,
                     getTitlesWidget: (value, meta) {
                       return Text(
-                        '\$${value.toInt()}',
+                        formatCurrency(
+                          value,
+                          currencyCode,
+                        ),
                         style:
                         const TextStyle(fontSize: 11),
                       );
@@ -333,11 +453,13 @@ class _MonthlyChart extends StatelessWidget {
                       BarChartRodData(
                         toY: monthlyTotals[index].amount,
                         width: 18,
-                        borderRadius:
-                        BorderRadius.circular(6),
-                        color: Theme.of(context)
+                        color: index == monthlyTotals.length - 1
+                            ? Theme.of(context).colorScheme.primary
+                            : Theme.of(context)
                             .colorScheme
-                            .primary,
+                            .primary
+                            .withValues(alpha: 0.45),
+                        borderRadius: BorderRadius.circular(6),
                       ),
                     ],
                   );
@@ -372,9 +494,11 @@ class _MonthlyChart extends StatelessWidget {
 
 class _CategoryChart extends StatelessWidget {
   final Map<String, double> categoryTotals;
+  final String currencyCode;
 
   const _CategoryChart({
     required this.categoryTotals,
+    required this.currencyCode,
   });
 
   @override
@@ -422,7 +546,7 @@ class _CategoryChart extends StatelessWidget {
               height: 230,
               child: PieChart(
                 PieChartData(
-                  centerSpaceRadius: 50,
+                  centerSpaceRadius: 52,
                   sectionsSpace: 3,
                   sections: List.generate(
                     entries.length,
@@ -435,7 +559,7 @@ class _CategoryChart extends StatelessWidget {
                         value: entry.value,
                         color:
                         colors[index % colors.length],
-                        radius: 60,
+                        radius: 54,
                         title:
                         '${percentage.toStringAsFixed(0)}%',
                         titleStyle: const TextStyle(
@@ -473,7 +597,10 @@ class _CategoryChart extends StatelessWidget {
                       child: Text(entry.key),
                     ),
                     Text(
-                      '\$${entry.value.toStringAsFixed(2)}',
+                      formatCurrency(
+                        entry.value,
+                        currencyCode,
+                      ),
                       style: const TextStyle(
                         fontWeight: FontWeight.w600,
                       ),
@@ -532,32 +659,45 @@ class _SpendingInsightCard extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
 
     final backgroundColor = switch (insight.type) {
-      InsightType.positive => colors.primaryContainer,
-      InsightType.warning => colors.errorContainer,
-      InsightType.information => colors.secondaryContainer,
+      InsightType.positive => Colors.green.shade50,
+      InsightType.warning => Colors.orange.shade50,
+      InsightType.information => Colors.blue.shade50,
     };
 
     final foregroundColor = switch (insight.type) {
-      InsightType.positive => colors.onPrimaryContainer,
-      InsightType.warning => colors.onErrorContainer,
-      InsightType.information => colors.onSecondaryContainer,
+      InsightType.positive => Colors.green.shade900,
+      InsightType.warning => Colors.orange.shade900,
+      InsightType.information => Colors.blue.shade900,
+    };
+
+    final borderColor = switch (insight.type) {
+      InsightType.positive => Colors.green.shade200,
+      InsightType.warning => Colors.orange.shade200,
+      InsightType.information => Colors.blue.shade200,
     };
 
     return Card(
       color: backgroundColor,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(24),
+        side: BorderSide(color: borderColor),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(20),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             CircleAvatar(
+              radius: 23,
               backgroundColor: colors.surface,
               child: Icon(
                 insight.icon,
+                size: 22,
                 color: foregroundColor,
               ),
             ),
-            const SizedBox(width: 14),
+            const SizedBox(width: 16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -572,10 +712,14 @@ class _SpendingInsightCard extends StatelessWidget {
                       color: foregroundColor,
                     ),
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 8),
                   Text(
                     insight.message,
-                    style: TextStyle(
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyLarge
+                        ?.copyWith(
+                      height: 1.4,
                       color: foregroundColor,
                     ),
                   ),

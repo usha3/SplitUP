@@ -13,6 +13,7 @@ import 'add_expense_screen.dart';
 import 'edit_expense_screen.dart';
 import 'manage_members_screen.dart';
 import 'group_report_screen.dart';
+import '../../utils/currency_formatter.dart';
 
 class GroupDetailsScreen extends StatelessWidget {
   final GroupModel group;
@@ -478,9 +479,10 @@ class GroupDetailsScreen extends StatelessWidget {
                               children: debts
                                   .map(
                                     (debt) => _DebtCard(
-                                  debt: debt,
-                                  users: users,
-                                  onSettle: () {
+                                      debt: debt,
+                                      users: users,
+                                      currencyCode: group.currencyCode,
+                                      onSettle: ()  {
                                     _settleDebt(
                                       context: context,
                                       debt: debt,
@@ -507,7 +509,10 @@ class GroupDetailsScreen extends StatelessWidget {
                               ),
                               const SizedBox(height: 6),
                               Text(
-                                '\$${total.toStringAsFixed(2)}',
+                                formatCurrency(
+                                  total,
+                                  group.currencyCode,
+                                ),
                                 style: Theme.of(context)
                                     .textTheme
                                     .headlineSmall
@@ -567,8 +572,8 @@ class GroupDetailsScreen extends StatelessWidget {
                               ),
                               subtitle: Text(
                                 '${expense.category} • '
-                                    '\$${expense.amountPerPerson.toStringAsFixed(2)} each\n'
-                                    'Total: \$${expense.amount.toStringAsFixed(2)}',
+                                    '${formatCurrency(expense.amountPerPerson, group.currencyCode)} each\n'
+                                    'Total: ${formatCurrency(expense.amount, group.currencyCode)}',
                               ),
                               isThreeLine: true,
                               trailing:
@@ -667,10 +672,12 @@ class GroupDetailsScreen extends StatelessWidget {
                                     '${_shortId(settlement.toUserId)}',
                               ),
                               trailing: Text(
-                                '\$${settlement.amount.toStringAsFixed(2)}',
+                                formatCurrency(
+                                  settlement.amount,
+                                  group.currencyCode,
+                                ),
                                 style: const TextStyle(
-                                  fontWeight:
-                                  FontWeight.bold,
+                                  fontWeight: FontWeight.bold,
                                 ),
                               ),
                             ),
@@ -700,11 +707,13 @@ class _DebtCard extends StatelessWidget {
   final DebtModel debt;
   final Map<String, UserModel> users;
   final VoidCallback onSettle;
+  final String currencyCode;
 
   const _DebtCard({
     required this.debt,
     required this.users,
     required this.onSettle,
+    required this.currencyCode,
   });
 
   @override
@@ -732,7 +741,10 @@ class _DebtCard extends StatelessWidget {
             '$fromName owes $toName',
           ),
           subtitle: Text(
-            '\$${debt.amount.toStringAsFixed(2)}',
+            formatCurrency(
+              debt.amount,
+              currencyCode,
+            ),
           ),
           trailing: FilledButton.tonal(
             onPressed: onSettle,

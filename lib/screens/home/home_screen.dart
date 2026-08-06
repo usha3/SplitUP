@@ -389,12 +389,20 @@ class _DashboardTab extends StatelessWidget {
                 child: _QuickActionCard(
                   icon: Icons.analytics_outlined,
                   label: 'Analytics',
-                  onTap: () {
-                    Navigator.of(context).push(
+                  onTap: () async {
+                    final shouldAddExpense =
+                    await Navigator.of(context).push<bool>(
                       MaterialPageRoute(
                         builder: (_) => const AnalyticsScreen(),
                       ),
                     );
+
+                    if (!context.mounted) return;
+
+                    if (shouldAddExpense == true) {
+                      // For now, switch the user to the Groups tab or open
+                      // the group-selection flow used by your app.
+                    }
                   },
                 ),
               ),

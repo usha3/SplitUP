@@ -10,6 +10,7 @@ import 'package:share_plus/share_plus.dart';
 import '../models/expense_model.dart';
 import '../models/group_model.dart';
 import '../models/settlement_model.dart';
+import '../utils/currency_formatter.dart';
 
 class ReportService {
   Future<Uint8List> generateGroupPdf({
@@ -102,7 +103,10 @@ class ReportService {
                 ),
                 _summaryBox(
                   label: 'Total spending',
-                  value: '\$${totalSpending.toStringAsFixed(2)}',
+                  value: formatCurrency(
+                    totalSpending,
+                    group.currencyCode,
+                  ),
                 ),
                 _summaryBox(
                   label: 'Settlements',
@@ -167,8 +171,15 @@ class ReportService {
                       memberNames[id] ?? _shortId(id),
                     )
                         .join(', '),
-                    '\$${expense.amount.toStringAsFixed(2)}',
-                    '\$${expense.amountPerPerson.toStringAsFixed(2)}',
+                    formatCurrency(
+                      expense.amount,
+                      group.currencyCode,
+                    ),
+
+                    formatCurrency(
+                      expense.amountPerPerson,
+                      group.currencyCode,
+                    ),
                   ];
                 }).toList(),
                 headerStyle: pw.TextStyle(
@@ -213,7 +224,10 @@ class ReportService {
                         _shortId(settlement.fromUserId),
                     memberNames[settlement.toUserId] ??
                         _shortId(settlement.toUserId),
-                    '\$${settlement.amount.toStringAsFixed(2)}',
+                    formatCurrency(
+                      settlement.amount,
+                      group.currencyCode,
+                    ),
                   ];
                 }).toList(),
                 headerStyle: pw.TextStyle(

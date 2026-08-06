@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../services/group_service.dart';
+import '../../models/currency_model.dart';
 
 class CreateGroupScreen extends StatefulWidget {
   const CreateGroupScreen({super.key});
@@ -15,6 +16,8 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
 
   final GroupService _groupService = GroupService();
 
+  String _currencyCode = 'USD';
+
   bool _loading = false;
 
   Future<void> _createGroup() async {
@@ -26,6 +29,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
       await _groupService.createGroup(
         name: _nameController.text,
         description: _descriptionController.text,
+        currencyCode: _currencyCode,
       );
 
       if (!mounted) return;
@@ -87,14 +91,49 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                 ),
                 maxLines: 3,
               ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                initialValue: _currencyCode,
+                decoration: const InputDecoration(
+                  labelText: 'Group currency',
+                  prefixIcon: Icon(Icons.currency_exchange_outlined),
+                  border: OutlineInputBorder(),
+                ),
+                items: supportedCurrencies
+                    .map(
+                      (currency) => DropdownMenuItem(
+                    value: currency.code,
+                    child: Text(
+                      '${currency.symbol} ${currency.code} — '
+                          '${currency.name}',
+                    ),
+                  ),
+                )
+                    .toList(),
+                onChanged: _loading
+                    ? null
+                    : (value) {
+                  if (value != null) {
+                    setState(() {
+                      _currencyCode = value;
+                    });
+                  }
+                },
+              ),
               const SizedBox(height: 24),
               SizedBox(
                 width: double.infinity,
                 child: FilledButton(
                   onPressed: _loading ? null : _createGroup,
                   child: _loading
-                      ? const CircularProgressIndicator()
-                      : const Text("Create Group"),
+                      ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                    ),
+                  )
+                      : const Text('Create Group'),
                 ),
               ),
             ],

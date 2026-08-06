@@ -49,6 +49,7 @@ class GroupService {
   Future<String> createGroup({
     required String name,
     required String description,
+    required String currencyCode,
   }) async {
     final user = _auth.currentUser;
 
@@ -63,6 +64,7 @@ class GroupService {
       'description': description.trim(),
       'createdBy': user.uid,
       'members': [user.uid],
+      'currencyCode': currencyCode,
       'memberDetails': {
         user.uid: {
           'name': user.displayName?.trim() ?? '',

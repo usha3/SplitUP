@@ -7,6 +7,7 @@ class GroupModel {
   final String createdBy;
   final List<String> members;
   final DateTime? createdAt;
+  final String currencyCode;
 
   const GroupModel({
     required this.id,
@@ -15,6 +16,7 @@ class GroupModel {
     required this.createdBy,
     required this.members,
     this.createdAt,
+    this.currencyCode = 'USD',
   });
 
   factory GroupModel.fromFirestore(
@@ -31,6 +33,8 @@ class GroupModel {
         data['members'] as List<dynamic>? ?? const [],
       ),
       createdAt: _toDateTime(data['createdAt']),
+      currencyCode:
+      data['currencyCode']?.toString() ?? 'USD',
     );
   }
 
@@ -40,7 +44,9 @@ class GroupModel {
       'description': description,
       'createdBy': createdBy,
       'members': members,
-      'createdAt': createdAt ?? FieldValue.serverTimestamp(),
+      'currencyCode': currencyCode,
+      'createdAt':
+      createdAt ?? FieldValue.serverTimestamp(),
     };
   }
 
@@ -51,14 +57,18 @@ class GroupModel {
     String? createdBy,
     List<String>? members,
     DateTime? createdAt,
+    String? currencyCode,
   }) {
     return GroupModel(
       id: id ?? this.id,
       name: name ?? this.name,
-      description: description ?? this.description,
+      description:
+      description ?? this.description,
       createdBy: createdBy ?? this.createdBy,
       members: members ?? this.members,
       createdAt: createdAt ?? this.createdAt,
+      currencyCode:
+      currencyCode ?? this.currencyCode,
     );
   }
 
@@ -72,7 +82,9 @@ class GroupModel {
     }
 
     if (value is int) {
-      return DateTime.fromMillisecondsSinceEpoch(value);
+      return DateTime.fromMillisecondsSinceEpoch(
+        value,
+      );
     }
 
     return null;
