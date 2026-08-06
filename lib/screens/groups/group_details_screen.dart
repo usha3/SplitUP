@@ -14,6 +14,8 @@ import 'edit_expense_screen.dart';
 import 'manage_members_screen.dart';
 import 'group_report_screen.dart';
 import '../../utils/currency_formatter.dart';
+import '../../widgets/budget_progress_card.dart';
+import '../budget/set_budget_screen.dart';
 
 class GroupDetailsScreen extends StatelessWidget {
   final GroupModel group;
@@ -333,6 +335,30 @@ class GroupDetailsScreen extends StatelessWidget {
                 );
               },
             ),
+          ),
+
+          const SizedBox(height: 24),
+
+          Text(
+            'Monthly budget',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+
+          const SizedBox(height: 10),
+
+          BudgetProgressCard(
+            group: group,
+            onEditBudget: () async {
+              await Navigator.of(context).push<bool>(
+                MaterialPageRoute(
+                  builder: (_) => SetBudgetScreen(
+                    group: group,
+                  ),
+                ),
+              );
+            },
           ),
 
           const SizedBox(height: 24),
