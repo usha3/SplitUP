@@ -32,6 +32,7 @@ class ExpenseService {
     required double amount,
     required String category,
     required List<String> participants,
+    String? receiptUrl,
   }) async {
     final user = _auth.currentUser;
 
@@ -57,6 +58,7 @@ class ExpenseService {
       paidBy: user.uid,
       groupId: groupId,
       participants: participants,
+      receiptUrl: receiptUrl,
     );
 
     await document.set(expense.toFirestore());
@@ -71,6 +73,7 @@ class ExpenseService {
     required double amount,
     required String category,
     required List<String> participants,
+    String? receiptUrl,
   }) async {
     final user = _auth.currentUser;
 
@@ -100,6 +103,7 @@ class ExpenseService {
       'amount': amount,
       'category': category,
       'participants': participants,
+      'receiptUrl': receiptUrl,
       'updatedAt': FieldValue.serverTimestamp(),
     });
   }

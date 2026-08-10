@@ -9,6 +9,9 @@ class ExpenseModel {
   final String groupId;
   final List<String> participants;
   final DateTime? createdAt;
+  final bool generatedFromRecurring;
+  final String? recurringExpenseId;
+  final String? receiptUrl;
 
   const ExpenseModel({
     required this.id,
@@ -19,6 +22,9 @@ class ExpenseModel {
     required this.groupId,
     required this.participants,
     this.createdAt,
+    this.generatedFromRecurring = false,
+    this.recurringExpenseId,
+    this.receiptUrl,
   });
 
   factory ExpenseModel.fromFirestore(
@@ -37,6 +43,12 @@ class ExpenseModel {
         data['participants'] as List<dynamic>? ?? const [],
       ),
       createdAt: _toDateTime(data['createdAt']),
+      generatedFromRecurring:
+      data['generatedFromRecurring'] == true,
+
+      recurringExpenseId:
+      data['recurringExpenseId']?.toString(),
+      receiptUrl: data['receiptUrl']?.toString(),
     );
   }
 
@@ -49,6 +61,9 @@ class ExpenseModel {
       'groupId': groupId,
       'participants': participants,
       'createdAt': createdAt ?? FieldValue.serverTimestamp(),
+      'generatedFromRecurring': generatedFromRecurring,
+      'recurringExpenseId': recurringExpenseId,
+      'receiptUrl': receiptUrl,
     };
   }
 
@@ -69,6 +84,7 @@ class ExpenseModel {
     String? groupId,
     List<String>? participants,
     DateTime? createdAt,
+    String? receiptUrl,
   }) {
     return ExpenseModel(
       id: id ?? this.id,
@@ -77,8 +93,15 @@ class ExpenseModel {
       category: category ?? this.category,
       paidBy: paidBy ?? this.paidBy,
       groupId: groupId ?? this.groupId,
-      participants: participants ?? this.participants,
+      participants:
+      participants ?? this.participants,
       createdAt: createdAt ?? this.createdAt,
+      generatedFromRecurring:
+      generatedFromRecurring,
+      recurringExpenseId:
+      recurringExpenseId,
+      receiptUrl:
+      receiptUrl ?? this.receiptUrl,
     );
   }
 

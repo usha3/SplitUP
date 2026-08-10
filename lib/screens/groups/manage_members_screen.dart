@@ -50,34 +50,55 @@ class _ManageMembersScreenState extends State<ManageMembersScreen> {
     for (final memberId in group.members) {
       final registeredUser = registeredUsers[memberId];
 
+      final rawDetails = memberDetails[memberId];
+
+      final details = rawDetails is Map
+          ? Map<String, dynamic>.from(rawDetails)
+          : <String, dynamic>{};
+
+      final addedAt = _toDateTime(details['addedAt']);
+
       if (registeredUser != null) {
         members[memberId] = _MemberViewData(
           id: memberId,
           name: registeredUser.name.trim(),
           email: registeredUser.email.trim(),
           isGuest: false,
+
+          // If the creator doesn't have addedAt,
+          // use the group creation date.
+          addedAt: addedAt ??
+              (memberId == group.createdBy
+                  ? group.createdAt
+                  : null),
         );
 
         continue;
       }
 
-      final rawDetails = memberDetails[memberId];
-      final details = rawDetails is Map
-          ? Map<String, dynamic>.from(rawDetails)
-          : <String, dynamic>{};
+      final name =
+          details['name']?.toString().trim() ?? '';
 
-      final name = details['name']?.toString().trim() ?? '';
-      final email = details['email']?.toString().trim() ?? '';
-      final isGuest = details['isGuest'] == true ||
-          memberId.startsWith('guest_');
+      final email =
+          details['email']?.toString().trim() ?? '';
+
+      final isGuest =
+          details['isGuest'] == true ||
+              memberId.startsWith('guest_');
 
       members[memberId] = _MemberViewData(
         id: memberId,
         name: name.isEmpty
-            ? (isGuest ? 'Guest member' : 'Unknown user')
+            ? (isGuest
+            ? 'Guest member'
+            : 'Unknown user')
             : name,
         email: email,
         isGuest: isGuest,
+        addedAt: addedAt ??
+            (memberId == group.createdBy
+                ? group.createdAt
+                : null),
       );
     }
 
@@ -633,8 +654,7 @@ class _ManageMembersScreenState extends State<ManageMembersScreen> {
                           isCreator: isCreator,
                         ),
                       ),
-                      isThreeLine:
-                      isCreator && member.email.isNotEmpty,
+
                       trailing: isCreator
                           ? const Icon(
                         Icons
@@ -678,6 +698,42 @@ class _ManageMembersScreenState extends State<ManageMembersScreen> {
     );
   }
 
+  static DateTime? _toDateTime(dynamic value) {
+    if (value is Timestamp) {
+      return value.toDate();
+    }
+
+    if (value is DateTime) {
+      return value;
+    }
+
+    if (value is int) {
+      return DateTime.fromMillisecondsSinceEpoch(value);
+    }
+
+    return null;
+  }
+
+  static String _formatDate(DateTime date) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+
+    return '${months[date.month - 1]} '
+        '${date.day}, ${date.year}';
+  }
+
   static bool _isValidEmail(String email) {
     return RegExp(
       r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
@@ -700,7 +756,17 @@ class _ManageMembersScreenState extends State<ManageMembersScreen> {
       parts.add('Guest member');
     }
 
-    return parts.isEmpty ? 'Member' : parts.join('\n');
+    if (member.addedAt != null) {
+      parts.add(
+        isCreator
+            ? 'Created group: ${_formatDate(member.addedAt!)}'
+            : 'Joined: ${_formatDate(member.addedAt!)}',
+      );
+    }
+
+    return parts.isEmpty
+        ? 'Member'
+        : parts.join('\n');
   }
 }
 
@@ -709,12 +775,14 @@ class _MemberViewData {
   final String name;
   final String email;
   final bool isGuest;
+  final DateTime? addedAt;
 
   const _MemberViewData({
     required this.id,
     required this.name,
     required this.email,
     required this.isGuest,
+    this.addedAt,
   });
 
   String get displayName {

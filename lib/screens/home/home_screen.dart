@@ -699,6 +699,25 @@ class _PremiumGroupCard extends StatelessWidget {
     required this.group,
   });
 
+  static String _formatDate(DateTime date) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+
+    return '${months[date.month - 1]} ${date.day}, ${date.year}';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Card(
@@ -764,6 +783,25 @@ class _PremiumGroupCard extends StatelessWidget {
                             .onSurfaceVariant,
                       ),
                     ),
+
+                    if (group.createdAt != null) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.calendar_today_outlined,
+                            size: 15,
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            'Created ${_formatDate(group.createdAt!)}',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall,
+                          ),
+                        ],
+                      ),
+                    ],
                     const SizedBox(height: 8),
                     Row(
                       children: [

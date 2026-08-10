@@ -16,14 +16,61 @@ import 'group_report_screen.dart';
 import '../../utils/currency_formatter.dart';
 import '../../widgets/budget_progress_card.dart';
 import '../budget/set_budget_screen.dart';
+import '../recurring/recurring_expenses_screen.dart';
+import '../../services/recurring_expense_service.dart';
+import 'receipt_viewer_screen.dart';
 
-class GroupDetailsScreen extends StatelessWidget {
+class GroupDetailsScreen extends StatefulWidget {
   final GroupModel group;
 
   const GroupDetailsScreen({
     super.key,
     required this.group,
   });
+
+  @override
+  State<GroupDetailsScreen> createState() =>
+      _GroupDetailsScreenState();
+}
+
+class _GroupDetailsScreenState
+    extends State<GroupDetailsScreen> {
+  final RecurringExpenseService _recurringService =
+  RecurringExpenseService();
+
+  @override
+  void initState() {
+    super.initState();
+
+    _generateDueRecurringExpenses();
+  }
+
+  Future<void> _generateDueRecurringExpenses() async {
+    try {
+      final generatedCount =
+      await _recurringService.generateDueExpenses(
+        widget.group.id,
+      );
+
+      if (!mounted || generatedCount == 0) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            generatedCount == 1
+                ? '1 recurring expense was added.'
+                : '$generatedCount recurring expenses were added.',
+          ),
+        ),
+      );
+    } catch (error) {
+      debugPrint(
+        'Unable to generate recurring expenses: $error',
+      );
+    }
+  }
 
   IconData _categoryIcon(String category) {
     switch (category.toLowerCase()) {
@@ -132,7 +179,7 @@ class GroupDetailsScreen extends StatelessWidget {
 
     try {
       await settlementService.recordSettlement(
-        groupId: group.id,
+        groupId: widget.group.id,
         fromUserId: debt.fromUserId,
         toUserId: debt.toUserId,
         amount: amount,
@@ -196,7 +243,7 @@ class GroupDetailsScreen extends StatelessWidget {
 
     try {
       await expenseService.deleteExpense(
-        groupId: group.id,
+        groupId: widget.group.id,
         expenseId: expense.id,
       );
 
@@ -229,7 +276,7 @@ class GroupDetailsScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(group.name),
+        title: Text(widget.group.name),
         actions: [
           IconButton(
             tooltip: 'Reports',
@@ -240,15 +287,15 @@ class GroupDetailsScreen extends StatelessWidget {
               final userService = UserService();
 
               final expenses = await expenseService
-                  .getGroupExpenses(group.id)
+                  .getGroupExpenses(widget.group.id)
                   .first;
 
               final settlements = await settlementService
-                  .getGroupSettlements(group.id)
+                  .getGroupSettlements(widget.group.id)
                   .first;
 
               final users =
-              await userService.getUsersByIds(group.members);
+              await userService.getUsersByIds(widget.group.members);
 
               final memberNames = <String, String>{};
 
@@ -262,7 +309,7 @@ class GroupDetailsScreen extends StatelessWidget {
                 context,
                 MaterialPageRoute(
                   builder: (_) => GroupReportScreen(
-                    group: group,
+                    group: widget.group,
                     expenses: expenses,
                     settlements: settlements,
                     memberNames: memberNames,
@@ -278,7 +325,7 @@ class GroupDetailsScreen extends StatelessWidget {
           Navigator.of(context).push(
             MaterialPageRoute(
               builder: (_) => AddExpenseScreen(
-                group: group,
+                group: widget.group,
               ),
             ),
           );
@@ -295,16 +342,16 @@ class GroupDetailsScreen extends StatelessWidget {
                 child: Icon(Icons.groups),
               ),
               title: Text(
-                group.name,
+                widget.group.name,
                 style: const TextStyle(
                   fontWeight: FontWeight.bold,
                 ),
               ),
               subtitle: Text(
-                group.description.isEmpty
-                    ? 'No description'
-                    : group.description,
+                '${widget.group.description.isEmpty ? 'No description' : widget.group.description}'
+                    '${widget.group.createdAt != null ? '\nCreated: ${_formatDate(widget.group.createdAt!)}' : ''}',
               ),
+              isThreeLine: widget.group.createdAt != null,
             ),
           ),
           const SizedBox(height: 20),
@@ -322,14 +369,14 @@ class GroupDetailsScreen extends StatelessWidget {
               leading: const Icon(Icons.people_outline),
               title: const Text('Members'),
               subtitle: Text(
-                '${group.members.length} member(s)',
+                '${widget.group.members.length} member(s)',
               ),
               trailing: const Icon(Icons.chevron_right),
               onTap: () {
                 Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (_) => ManageMembersScreen(
-                      group: group,
+                      group: widget.group,
                     ),
                   ),
                 );
@@ -349,16 +396,45 @@ class GroupDetailsScreen extends StatelessWidget {
           const SizedBox(height: 10),
 
           BudgetProgressCard(
-            group: group,
+            group: widget.group,
             onEditBudget: () async {
               await Navigator.of(context).push<bool>(
                 MaterialPageRoute(
                   builder: (_) => SetBudgetScreen(
-                    group: group,
+                    group: widget.group,
                   ),
                 ),
               );
             },
+          ),
+
+          const SizedBox(height: 16),
+
+          Card(
+            child: ListTile(
+              leading: const CircleAvatar(
+                child: Icon(Icons.repeat_rounded),
+              ),
+              title: const Text(
+                'Recurring expenses',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              subtitle: const Text(
+                'Rent, utilities, and subscriptions',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => RecurringExpensesScreen(
+                      group: widget.group,
+                    ),
+                  ),
+                );
+              },
+            ),
           ),
 
           const SizedBox(height: 24),
@@ -372,7 +448,7 @@ class GroupDetailsScreen extends StatelessWidget {
           const SizedBox(height: 10),
 
           StreamBuilder<List<ExpenseModel>>(
-            stream: expenseService.getGroupExpenses(group.id),
+            stream: expenseService.getGroupExpenses(widget.group.id),
             builder: (context, expenseSnapshot) {
               if (expenseSnapshot.connectionState ==
                   ConnectionState.waiting) {
@@ -400,7 +476,7 @@ class GroupDetailsScreen extends StatelessWidget {
 
               return StreamBuilder<List<SettlementModel>>(
                 stream: settlementService.getGroupSettlements(
-                  group.id,
+                  widget.group.id,
                 ),
                 builder: (context, settlementSnapshot) {
                   if (settlementSnapshot.connectionState ==
@@ -412,7 +488,6 @@ class GroupDetailsScreen extends StatelessWidget {
                       ),
                     );
                   }
-
                   if (settlementSnapshot.hasError) {
                     return Card(
                       child: Padding(
@@ -429,7 +504,7 @@ class GroupDetailsScreen extends StatelessWidget {
                       settlementSnapshot.data ?? [];
 
                   final debts = balanceService.simplifyDebts(
-                    memberIds: group.members,
+                    memberIds: widget.group.members,
                     expenses: expenses,
                     settlements: settlements,
                   );
@@ -468,7 +543,7 @@ class GroupDetailsScreen extends StatelessWidget {
                       else
                         FutureBuilder<Map<String, UserModel>>(
                           future: userService.getUsersByIds(
-                            group.members,
+                            widget.group.members,
                           ),
                           builder: (
                               context,
@@ -507,7 +582,7 @@ class GroupDetailsScreen extends StatelessWidget {
                                     (debt) => _DebtCard(
                                       debt: debt,
                                       users: users,
-                                      currencyCode: group.currencyCode,
+                                      currencyCode: widget.group.currencyCode,
                                       onSettle: ()  {
                                     _settleDebt(
                                       context: context,
@@ -537,7 +612,7 @@ class GroupDetailsScreen extends StatelessWidget {
                               Text(
                                 formatCurrency(
                                   total,
-                                  group.currencyCode,
+                                  widget.group.currencyCode,
                                 ),
                                 style: Theme.of(context)
                                     .textTheme
@@ -589,67 +664,113 @@ class GroupDetailsScreen extends StatelessWidget {
                                   ),
                                 ),
                               ),
-                              title: Text(
-                                expense.title,
-                                style: const TextStyle(
-                                  fontWeight:
-                                  FontWeight.w600,
-                                ),
+                              title: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      expense.title,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                  if (expense.generatedFromRecurring)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 3,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.blue.withValues(alpha: 0.12),
+                                        borderRadius: BorderRadius.circular(20),
+                                      ),
+                                      child: const Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            Icons.repeat_rounded,
+                                            size: 14,
+                                            color: Colors.blue,
+                                          ),
+                                          SizedBox(width: 4),
+                                          Text(
+                                            'Recurring',
+                                            style: TextStyle(
+                                              color: Colors.blue,
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                ],
                               ),
                               subtitle: Text(
                                 '${expense.category} • '
-                                    '${formatCurrency(expense.amountPerPerson, group.currencyCode)} each\n'
-                                    'Total: ${formatCurrency(expense.amount, group.currencyCode)}',
+                                    '${formatCurrency(expense.amountPerPerson, widget.group.currencyCode)} each\n'
+                                    'Total: ${formatCurrency(expense.amount, widget.group.currencyCode)}'
+                                    '${expense.createdAt != null ? '\nDate: ${_formatDate(expense.createdAt!)}' : ''}',
                               ),
-                              isThreeLine: true,
-                              trailing:
-                              PopupMenuButton<String>(
-                                onSelected: (value) {
-                                  if (value == 'edit') {
-                                    Navigator.of(context).push(
-                                      MaterialPageRoute(
-                                        builder: (_) =>
-                                            EditExpenseScreen(
-                                              group: group,
+                              isThreeLine: false,
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (expense.receiptUrl != null &&
+                                      expense.receiptUrl!.isNotEmpty)
+                                    IconButton(
+                                      tooltip: 'View Receipt',
+                                      icon: const Icon(
+                                        Icons.receipt_long_rounded,
+                                      ),
+                                      onPressed: () {
+                                        _viewReceipt(expense.receiptUrl!);
+                                      },
+                                    ),
+
+                                  PopupMenuButton<String>(
+                                    onSelected: (value) {
+                                      if (value == 'edit') {
+                                        Navigator.of(context).push(
+                                          MaterialPageRoute(
+                                            builder: (_) => EditExpenseScreen(
+                                              group: widget.group,
                                               expense: expense,
                                             ),
-                                      ),
-                                    );
-                                  }
+                                          ),
+                                        );
+                                      }
 
-                                  if (value == 'delete') {
-                                    _confirmDeleteExpense(
-                                      context: context,
-                                      expense: expense,
-                                      expenseService:
-                                      expenseService,
-                                    );
-                                  }
-                                },
-                                itemBuilder: (_) => const [
-                                  PopupMenuItem(
-                                    value: 'edit',
-                                    child: Row(
-                                      children: [
-                                        Icon(
-                                          Icons.edit_outlined,
+                                      if (value == 'delete') {
+                                        _confirmDeleteExpense(
+                                          context: context,
+                                          expense: expense,
+                                          expenseService: expenseService,
+                                        );
+                                      }
+                                    },
+                                    itemBuilder: (_) => const [
+                                      PopupMenuItem(
+                                        value: 'edit',
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.edit_outlined),
+                                            SizedBox(width: 10),
+                                            Text('Edit'),
+                                          ],
                                         ),
-                                        SizedBox(width: 10),
-                                        Text('Edit'),
-                                      ],
-                                    ),
-                                  ),
-                                  PopupMenuItem(
-                                    value: 'delete',
-                                    child: Row(
-                                      children: [
-                                        Icon(
-                                          Icons.delete_outline,
+                                      ),
+                                      PopupMenuItem(
+                                        value: 'delete',
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.delete_outline),
+                                            SizedBox(width: 10),
+                                            Text('Delete'),
+                                          ],
                                         ),
-                                        SizedBox(width: 10),
-                                        Text('Delete'),
-                                      ],
-                                    ),
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ),
@@ -682,32 +803,70 @@ class GroupDetailsScreen extends StatelessWidget {
                           ),
                         )
                       else
-                        ...settlements.map(
-                              (settlement) => Card(
-                            child: ListTile(
-                              leading: const CircleAvatar(
-                                child: Icon(
-                                  Icons.payments_outlined,
-                                ),
-                              ),
-                              title: const Text(
-                                'Payment recorded',
-                              ),
-                              subtitle: Text(
-                                '${_shortId(settlement.fromUserId)} → '
-                                    '${_shortId(settlement.toUserId)}',
-                              ),
-                              trailing: Text(
-                                formatCurrency(
-                                  settlement.amount,
-                                  group.currencyCode,
-                                ),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
+                        FutureBuilder<Map<String, UserModel>>(
+                          future: userService.getUsersByIds(
+                            widget.group.members,
                           ),
+                          builder: (context, userSnapshot) {
+                            if (userSnapshot.connectionState ==
+                                ConnectionState.waiting) {
+                              return const Center(
+                                child: Padding(
+                                  padding: EdgeInsets.all(16),
+                                  child: CircularProgressIndicator(),
+                                ),
+                              );
+                            }
+
+                            final users = userSnapshot.data ?? {};
+
+                            return Column(
+                              children: settlements.map((settlement) {
+                                final fromUser =
+                                users[settlement.fromUserId];
+
+                                final toUser =
+                                users[settlement.toUserId];
+
+                                final fromName =
+                                _settlementDisplayName(
+                                  fromUser,
+                                  settlement.fromUserId,
+                                );
+
+                                final toName =
+                                _settlementDisplayName(
+                                  toUser,
+                                  settlement.toUserId,
+                                );
+
+                                return Card(
+                                  child: ListTile(
+                                    leading: const CircleAvatar(
+                                      child: Icon(
+                                        Icons.payments_outlined,
+                                      ),
+                                    ),
+                                    title: const Text(
+                                      'Payment recorded',
+                                    ),
+                                    subtitle: Text(
+                                      '$fromName → $toName',
+                                    ),
+                                    trailing: Text(
+                                      formatCurrency(
+                                        settlement.amount,
+                                        widget.group.currencyCode,
+                                      ),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                            );
+                          },
                         ),
                     ],
                   );
@@ -720,12 +879,59 @@ class GroupDetailsScreen extends StatelessWidget {
     );
   }
 
+  void _viewReceipt(String url) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ReceiptViewerScreen(
+          receiptUrl: url,
+        ),
+      ),
+    );
+  }
+
+  static String _settlementDisplayName(
+      UserModel? user,
+      String userId,
+      ) {
+    final name = user?.name.trim() ?? '';
+
+    if (name.isNotEmpty) {
+      return name;
+    }
+
+    final email = user?.email.trim() ?? '';
+
+    if (email.isNotEmpty) {
+      return email;
+    }
+
+    return _shortId(userId);
+  }
+
   static String _shortId(String value) {
     if (value.length <= 8) {
       return value;
     }
 
     return '${value.substring(0, 8)}…';
+  }
+  static String _formatDate(DateTime date) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+
+    return '${months[date.month - 1]} ${date.day}, ${date.year}';
   }
 }
 

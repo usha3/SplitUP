@@ -5,6 +5,11 @@ import '../../models/group_model.dart';
 import '../../services/expense_service.dart';
 import '../../models/scanned_receipt.dart';
 import 'receipt_scanner_screen.dart';
+import 'dart:io';
+
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
 class AddExpenseScreen extends StatefulWidget {
   final GroupModel group;
@@ -25,6 +30,16 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
   final ExpenseService _expenseService = ExpenseService();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseStorage _storage = FirebaseStorage.instance;
+  final TextRecognizer _textRecognizer =
+  TextRecognizer(
+    script: TextRecognitionScript.latin,
+  );
+
+  final ImagePicker _imagePicker =
+  ImagePicker();
+
+  XFile? _receiptImage;
 
   bool _isLoading = false;
   String _category = 'Other';
@@ -148,12 +163,19 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     });
 
     try {
+      String? receiptUrl;
+
+      if (_receiptImage != null) {
+        receiptUrl = await _uploadReceiptImage();
+      }
+
       await _expenseService.addExpense(
         groupId: widget.group.id,
         title: _titleController.text.trim(),
         amount: amount,
         category: _category,
         participants: _selectedMembers.toList(),
+        receiptUrl: receiptUrl,
       );
 
       if (!mounted) return;
@@ -188,10 +210,247 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     });
   }
 
+  Future<void> _pickReceiptImage() async {
+    final XFile? image =
+    await _imagePicker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 85,
+      maxWidth: 1800,
+    );
+
+    if (image == null || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _receiptImage = image;
+    });
+
+    await _extractReceiptData(image.path);
+  }
+
+  Future<void> _extractReceiptData(
+      String imagePath,
+      ) async {
+    try {
+      final inputImage =
+      InputImage.fromFilePath(imagePath);
+
+      final recognizedText =
+      await _textRecognizer.processImage(
+        inputImage,
+      );
+
+      final rawText = recognizedText.text.trim();
+
+      if (rawText.isEmpty) {
+        if (!mounted) return;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No readable text was found on the receipt.',
+            ),
+          ),
+        );
+
+        return;
+      }
+
+      debugPrint('======= RECEIPT OCR =======');
+      debugPrint(rawText);
+      debugPrint('===========================');
+
+      final lines = recognizedText.blocks
+          .expand((block) => block.lines)
+          .map((line) => line.text.trim())
+          .where((line) => line.isNotEmpty)
+          .toList();
+
+      final merchant = _findMerchant(lines);
+      final total = _findReceiptTotal(lines);
+
+      if (!mounted) return;
+
+      setState(() {
+        if (merchant != null &&
+            merchant.isNotEmpty &&
+            _titleController.text.trim().isEmpty) {
+          _titleController.text = merchant;
+        }
+
+        if (total != null) {
+          _amountController.text =
+              total.toStringAsFixed(2);
+        }
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Receipt scanned. Please verify the details.',
+          ),
+        ),
+      );
+    } catch (error) {
+      debugPrint(
+        'Receipt OCR failed: $error',
+      );
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Could not read this receipt.',
+          ),
+        ),
+      );
+    }
+  }
+
+  String? _findMerchant(
+      List<String> lines,
+      ) {
+    for (final line in lines.take(6)) {
+      final clean = line.trim();
+
+      if (clean.length < 3) {
+        continue;
+      }
+
+      final lower = clean.toLowerCase();
+
+      final looksLikeNoise =
+          lower.contains('receipt') ||
+              lower.contains('thank you') ||
+              lower.contains('welcome') ||
+              lower.contains('date') ||
+              lower.contains('time') ||
+              lower.contains('www.') ||
+              lower.contains('http') ||
+              RegExp(r'^\d+$').hasMatch(clean);
+
+      if (!looksLikeNoise) {
+        return clean;
+      }
+    }
+
+    return null;
+  }
+
+  double? _findReceiptTotal(
+      List<String> lines,
+      ) {
+    final strongKeywords = [
+      'grand total',
+      'amount due',
+      'balance due',
+      'total due',
+      'total',
+    ];
+
+    for (final keyword in strongKeywords) {
+      for (final line in lines.reversed) {
+        final lower = line.toLowerCase();
+
+        if (!lower.contains(keyword)) {
+          continue;
+        }
+
+        final amount =
+        _extractLargestAmount(line);
+
+        if (amount != null) {
+          return amount;
+        }
+      }
+    }
+
+    // Fallback: inspect the last part of the receipt.
+    final candidates = <double>[];
+
+    for (final line in lines.reversed.take(12)) {
+      final amount =
+      _extractLargestAmount(line);
+
+      if (amount != null) {
+        candidates.add(amount);
+      }
+    }
+
+    if (candidates.isEmpty) {
+      return null;
+    }
+
+    candidates.sort();
+
+    return candidates.last;
+  }
+
+  double? _extractLargestAmount(
+      String text,
+      ) {
+    final matches = RegExp(
+      r'(?:\$|USD\s*)?(\d{1,6}(?:,\d{3})*(?:\.\d{2}))',
+      caseSensitive: false,
+    ).allMatches(text);
+
+    final amounts = <double>[];
+
+    for (final match in matches) {
+      final value = match
+          .group(1)
+          ?.replaceAll(',', '');
+
+      final amount =
+      double.tryParse(value ?? '');
+
+      if (amount != null) {
+        amounts.add(amount);
+      }
+    }
+
+    if (amounts.isEmpty) {
+      return null;
+    }
+
+    amounts.sort();
+
+    return amounts.last;
+  }
+
+  Future<String?> _uploadReceiptImage() async {
+    final image = _receiptImage;
+
+    if (image == null) {
+      return null;
+    }
+
+    final extension =
+    image.path.split('.').last.toLowerCase();
+
+    final fileName =
+        '${DateTime.now().millisecondsSinceEpoch}.$extension';
+
+    final storageReference = _storage
+        .ref()
+        .child('receipts')
+        .child(widget.group.id)
+        .child(fileName);
+
+    await storageReference.putFile(
+      File(image.path),
+    );
+
+    return storageReference.getDownloadURL();
+  }
+
   @override
   void dispose() {
     _titleController.dispose();
     _amountController.dispose();
+    _textRecognizer.close();
     super.dispose();
   }
 
@@ -217,6 +476,59 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                   icon: const Icon(Icons.document_scanner_outlined),
                   label: const Text('Scan Receipt'),
                 ),
+                const SizedBox(height: 12),
+
+                OutlinedButton.icon(
+                  onPressed:
+                  _isLoading ? null : _pickReceiptImage,
+                  icon: const Icon(
+                    Icons.attach_file_rounded,
+                  ),
+                  label: Text(
+                    _receiptImage == null
+                        ? 'Attach Receipt'
+                        : 'Change Receipt',
+                  ),
+                ),
+
+                if (_receiptImage != null) ...[
+                  const SizedBox(height: 12),
+
+                  Card(
+                    clipBehavior: Clip.antiAlias,
+                    child: Column(
+                      crossAxisAlignment:
+                      CrossAxisAlignment.stretch,
+                      children: [
+                        Image.file(
+                          File(_receiptImage!.path),
+                          height: 180,
+                          fit: BoxFit.cover,
+                        ),
+
+                        ListTile(
+                          leading:
+                          const Icon(Icons.receipt_long),
+                          title:
+                          const Text('Receipt attached'),
+                          trailing: IconButton(
+                            tooltip: 'Remove receipt',
+                            icon: const Icon(
+                              Icons.delete_outline,
+                            ),
+                            onPressed: _isLoading
+                                ? null
+                                : () {
+                              setState(() {
+                                _receiptImage = null;
+                              });
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 16),
                 TextFormField(
                   controller: _titleController,
