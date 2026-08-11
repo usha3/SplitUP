@@ -7,6 +7,7 @@ import '../../utils/currency_formatter.dart';
 import 'add_expense_screen.dart';
 import 'edit_expense_screen.dart';
 import 'receipt_viewer_screen.dart';
+import '../expenses/expense_history_screen.dart';
 
 class GroupExpensesScreen extends StatelessWidget {
   final GroupModel group;
@@ -231,7 +232,38 @@ class GroupExpensesScreen extends StatelessWidget {
                 ),
               ),
 
-              const SizedBox(height: 24),
+              Card(
+                child: ListTile(
+                  leading: const CircleAvatar(
+                    child: Icon(
+                      Icons.filter_alt_outlined,
+                    ),
+                  ),
+                  title: const Text(
+                    'History & Filters',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  subtitle: const Text(
+                    'Filter expenses by month, category, or type',
+                  ),
+                  trailing: const Icon(
+                    Icons.chevron_right,
+                  ),
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => ExpenseHistoryScreen(
+                          group: group,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+
+              const SizedBox(height: 20),
 
               Row(
                 children: [
