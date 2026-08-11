@@ -1,5 +1,43 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+class ExpenseItem {
+  final String name;
+  final double amount;
+  final List<String> participants;
+
+  const ExpenseItem({
+    required this.name,
+    required this.amount,
+    required this.participants,
+  });
+
+  factory ExpenseItem.fromMap(Map<String, dynamic> data) {
+    return ExpenseItem(
+      name: data['name']?.toString() ?? '',
+      amount: _toDouble(data['amount']),
+      participants: List<String>.from(
+        data['participants'] as List<dynamic>? ?? const [],
+      ),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'name': name,
+      'amount': amount,
+      'participants': participants,
+    };
+  }
+
+  static double _toDouble(dynamic value) {
+    if (value is num) {
+      return value.toDouble();
+    }
+
+    return double.tryParse(value?.toString() ?? '') ?? 0;
+  }
+}
+
 class ExpenseModel {
   final String id;
   final String title;
@@ -9,9 +47,19 @@ class ExpenseModel {
   final String groupId;
   final List<String> participants;
   final DateTime? createdAt;
+
   final bool generatedFromRecurring;
   final String? recurringExpenseId;
   final String? receiptUrl;
+
+  // NEW
+  final String splitType;
+
+  // NEW
+  final List<ExpenseItem> items;
+
+  // NEW
+  final Map<String, double> shares;
 
   const ExpenseModel({
     required this.id,
@@ -25,12 +73,40 @@ class ExpenseModel {
     this.generatedFromRecurring = false,
     this.recurringExpenseId,
     this.receiptUrl,
+
+    // NEW
+    this.splitType = 'equal',
+    this.items = const [],
+    this.shares = const {},
   });
 
   factory ExpenseModel.fromFirestore(
       DocumentSnapshot<Map<String, dynamic>> document,
       ) {
     final data = document.data() ?? {};
+
+    final rawItems = data['items'];
+
+    final items = rawItems is List
+        ? rawItems
+        .whereType<Map>()
+        .map(
+          (item) => ExpenseItem.fromMap(
+        Map<String, dynamic>.from(item),
+      ),
+    )
+        .toList()
+        : <ExpenseItem>[];
+
+    final rawShares = data['shares'];
+
+    final shares = <String, double>{};
+
+    if (rawShares is Map) {
+      rawShares.forEach((key, value) {
+        shares[key.toString()] = _toDouble(value);
+      });
+    }
 
     return ExpenseModel(
       id: document.id,
@@ -45,10 +121,15 @@ class ExpenseModel {
       createdAt: _toDateTime(data['createdAt']),
       generatedFromRecurring:
       data['generatedFromRecurring'] == true,
-
       recurringExpenseId:
       data['recurringExpenseId']?.toString(),
       receiptUrl: data['receiptUrl']?.toString(),
+
+      // NEW
+      splitType:
+      data['splitType']?.toString() ?? 'equal',
+      items: items,
+      shares: shares,
     );
   }
 
@@ -60,10 +141,19 @@ class ExpenseModel {
       'paidBy': paidBy,
       'groupId': groupId,
       'participants': participants,
-      'createdAt': createdAt ?? FieldValue.serverTimestamp(),
-      'generatedFromRecurring': generatedFromRecurring,
-      'recurringExpenseId': recurringExpenseId,
+      'createdAt':
+      createdAt ?? FieldValue.serverTimestamp(),
+      'generatedFromRecurring':
+      generatedFromRecurring,
+      'recurringExpenseId':
+      recurringExpenseId,
       'receiptUrl': receiptUrl,
+
+      // NEW
+      'splitType': splitType,
+      'items':
+      items.map((item) => item.toMap()).toList(),
+      'shares': shares,
     };
   }
 
@@ -73,6 +163,20 @@ class ExpenseModel {
     }
 
     return amount / participants.length;
+  }
+
+  double shareFor(String memberId) {
+    if (shares.containsKey(memberId)) {
+      return shares[memberId]!;
+    }
+
+    if (splitType == 'equal' &&
+        participants.contains(memberId) &&
+        participants.isNotEmpty) {
+      return amount / participants.length;
+    }
+
+    return 0;
   }
 
   ExpenseModel copyWith({
@@ -85,6 +189,9 @@ class ExpenseModel {
     List<String>? participants,
     DateTime? createdAt,
     String? receiptUrl,
+    String? splitType,
+    List<ExpenseItem>? items,
+    Map<String, double>? shares,
   }) {
     return ExpenseModel(
       id: id ?? this.id,
@@ -95,13 +202,20 @@ class ExpenseModel {
       groupId: groupId ?? this.groupId,
       participants:
       participants ?? this.participants,
-      createdAt: createdAt ?? this.createdAt,
+      createdAt:
+      createdAt ?? this.createdAt,
       generatedFromRecurring:
       generatedFromRecurring,
       recurringExpenseId:
       recurringExpenseId,
       receiptUrl:
       receiptUrl ?? this.receiptUrl,
+      splitType:
+      splitType ?? this.splitType,
+      items:
+      items ?? this.items,
+      shares:
+      shares ?? this.shares,
     );
   }
 
@@ -110,7 +224,10 @@ class ExpenseModel {
       return value.toDouble();
     }
 
-    return double.tryParse(value?.toString() ?? '') ?? 0;
+    return double.tryParse(
+      value?.toString() ?? '',
+    ) ??
+        0;
   }
 
   static DateTime? _toDateTime(dynamic value) {
@@ -123,7 +240,9 @@ class ExpenseModel {
     }
 
     if (value is int) {
-      return DateTime.fromMillisecondsSinceEpoch(value);
+      return DateTime.fromMillisecondsSinceEpoch(
+        value,
+      );
     }
 
     return null;

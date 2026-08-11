@@ -10,19 +10,26 @@ class ExpenseService {
   ExpenseService({
     FirebaseFirestore? firestore,
     FirebaseAuth? auth,
-  })  : _firestore = firestore ?? FirebaseFirestore.instance,
+  })  : _firestore =
+      firestore ?? FirebaseFirestore.instance,
         _auth = auth ?? FirebaseAuth.instance;
 
-  Stream<List<ExpenseModel>> getGroupExpenses(String groupId) {
+  Stream<List<ExpenseModel>> getGroupExpenses(
+      String groupId,
+      ) {
     return _firestore
         .collection('groups')
         .doc(groupId)
         .collection('expenses')
-        .orderBy('createdAt', descending: true)
+        .orderBy(
+      'createdAt',
+      descending: true,
+    )
         .snapshots()
         .map(
-          (snapshot) =>
-          snapshot.docs.map(ExpenseModel.fromFirestore).toList(),
+          (snapshot) => snapshot.docs
+          .map(ExpenseModel.fromFirestore)
+          .toList(),
     );
   }
 
@@ -31,17 +38,88 @@ class ExpenseService {
     required String title,
     required double amount,
     required String category,
+    required String paidBy,
     required List<String> participants,
     String? receiptUrl,
+
+    // NEW
+    String splitType = 'equal',
+
+    // NEW
+    List<ExpenseItem> items = const [],
+
+    // NEW
+    Map<String, double> shares = const {},
   }) async {
     final user = _auth.currentUser;
 
     if (user == null) {
-      throw StateError('You must be logged in to add an expense.');
+      throw StateError(
+        'You must be logged in to add an expense.',
+      );
+    }
+
+    if (title.trim().isEmpty) {
+      throw ArgumentError(
+        'Expense title is required.',
+      );
+    }
+
+    if (amount <= 0) {
+      throw ArgumentError(
+        'Expense amount must be greater than zero.',
+      );
     }
 
     if (participants.isEmpty) {
-      throw ArgumentError('Select at least one participant.');
+      throw ArgumentError(
+        'Select at least one participant.',
+      );
+    }
+
+    if (paidBy.trim().isEmpty) {
+      throw ArgumentError(
+        'Select who paid for this expense.',
+      );
+    }
+
+    if (splitType == 'itemized') {
+      if (items.isEmpty) {
+        throw ArgumentError(
+          'Add at least one item.',
+        );
+      }
+
+      for (final item in items) {
+        if (item.name.trim().isEmpty) {
+          throw ArgumentError(
+            'Every item needs a name.',
+          );
+        }
+
+        if (item.amount <= 0) {
+          throw ArgumentError(
+            'Every item must have a valid amount.',
+          );
+        }
+
+        if (item.participants.isEmpty) {
+          throw ArgumentError(
+            '${item.name} must have at least one participant.',
+          );
+        }
+      }
+
+      final itemTotal = items.fold<double>(
+        0,
+            (total, item) => total + item.amount,
+      );
+
+      if ((itemTotal - amount).abs() > 0.01) {
+        throw ArgumentError(
+          'Item total does not match expense total.',
+        );
+      }
     }
 
     final document = _firestore
@@ -55,13 +133,18 @@ class ExpenseService {
       title: title.trim(),
       amount: amount,
       category: category,
-      paidBy: user.uid,
+      paidBy: paidBy,
       groupId: groupId,
       participants: participants,
       receiptUrl: receiptUrl,
+      splitType: splitType,
+      items: items,
+      shares: shares,
     );
 
-    await document.set(expense.toFirestore());
+    await document.set(
+      expense.toFirestore(),
+    );
 
     return document.id;
   }
@@ -74,23 +157,35 @@ class ExpenseService {
     required String category,
     required List<String> participants,
     String? receiptUrl,
+
+    String splitType = 'equal',
+    List<ExpenseItem> items = const [],
+    Map<String, double> shares = const {},
   }) async {
     final user = _auth.currentUser;
 
     if (user == null) {
-      throw StateError('You must be logged in.');
+      throw StateError(
+        'You must be logged in.',
+      );
     }
 
     if (title.trim().isEmpty) {
-      throw ArgumentError('Expense title is required.');
+      throw ArgumentError(
+        'Expense title is required.',
+      );
     }
 
     if (amount <= 0) {
-      throw ArgumentError('Expense amount must be greater than zero.');
+      throw ArgumentError(
+        'Expense amount must be greater than zero.',
+      );
     }
 
     if (participants.isEmpty) {
-      throw ArgumentError('Select at least one participant.');
+      throw ArgumentError(
+        'Select at least one participant.',
+      );
     }
 
     await _firestore
@@ -104,7 +199,15 @@ class ExpenseService {
       'category': category,
       'participants': participants,
       'receiptUrl': receiptUrl,
-      'updatedAt': FieldValue.serverTimestamp(),
+
+      // NEW
+      'splitType': splitType,
+      'items':
+      items.map((item) => item.toMap()).toList(),
+      'shares': shares,
+
+      'updatedAt':
+      FieldValue.serverTimestamp(),
     });
   }
 
@@ -115,7 +218,9 @@ class ExpenseService {
     final user = _auth.currentUser;
 
     if (user == null) {
-      throw StateError('You must be logged in.');
+      throw StateError(
+        'You must be logged in.',
+      );
     }
 
     await _firestore

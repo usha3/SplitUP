@@ -23,14 +23,34 @@ class BalanceService {
         continue;
       }
 
-      final share =
-          expense.amount / expense.participants.length;
+      if (expense.splitType == 'itemized' &&
+          expense.shares.isNotEmpty) {
+        for (final entry in expense.shares.entries) {
+          final participantId = entry.key;
+          final share = entry.value;
 
-      for (final participantId in expense.participants) {
-        balances.putIfAbsent(participantId, () => 0);
+          balances.putIfAbsent(
+            participantId,
+                () => 0,
+          );
 
-        balances[participantId] =
-            balances[participantId]! - share;
+          balances[participantId] =
+              balances[participantId]! - share;
+        }
+      } else {
+        final share =
+            expense.amount / expense.participants.length;
+
+        for (final participantId
+        in expense.participants) {
+          balances.putIfAbsent(
+            participantId,
+                () => 0,
+          );
+
+          balances[participantId] =
+              balances[participantId]! - share;
+        }
       }
     }
 

@@ -9,6 +9,7 @@ import 'edit_expense_screen.dart';
 import 'receipt_viewer_screen.dart';
 import '../expenses/expense_history_screen.dart';
 import '../expenses/expense_analytics_screen.dart';
+import '../expenses/expense_details_screen.dart';
 
 class GroupExpensesScreen extends StatelessWidget {
   final GroupModel group;
@@ -344,6 +345,16 @@ class GroupExpensesScreen extends StatelessWidget {
                       (expense) {
                     return Card(
                       child: ListTile(
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => ExpenseDetailsScreen(
+                                group: group,
+                                expense: expense,
+                              ),
+                            ),
+                          );
+                        },
                         leading: CircleAvatar(
                           child: Icon(
                             _categoryIcon(
@@ -417,7 +428,18 @@ class GroupExpensesScreen extends StatelessWidget {
                         ),
 
                         subtitle: Text(
-                          '${expense.category} • '
+                          expense.splitType == 'itemized'
+                              ? '${expense.category} • By item\n'
+                              'Total: ${formatCurrency(
+                            expense.amount,
+                            group.currencyCode,
+                          )}'
+                              '${expense.createdAt != null
+                              ? '\nDate: ${_formatDate(
+                            expense.createdAt!,
+                          )}'
+                              : ''}'
+                              : '${expense.category} • '
                               '${formatCurrency(
                             expense.amountPerPerson,
                             group.currencyCode,

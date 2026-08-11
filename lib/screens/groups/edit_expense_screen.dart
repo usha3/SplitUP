@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../models/expense_model.dart';
 import '../../models/group_model.dart';
 import '../../services/expense_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class EditExpenseScreen extends StatefulWidget {
   final GroupModel group;
@@ -20,6 +21,11 @@ class EditExpenseScreen extends StatefulWidget {
       _EditExpenseScreenState();
 }
 
+enum _SplitMode {
+  equal,
+  itemized,
+}
+
 class _EditExpenseScreenState extends State<EditExpenseScreen> {
   final _formKey = GlobalKey<FormState>();
 
@@ -31,6 +37,9 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
 
   late String _category;
   late Set<String> _selectedMembers;
+  late _SplitMode _splitMode;
+
+  final List<_ExpenseItemDraft> _expenseItems = [];
   late Future<Map<String, _ParticipantData>> _participantsFuture;
 
   bool _isLoading = false;
@@ -44,6 +53,190 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
     'Entertainment',
     'Other',
   ];
+
+  void _changeSplitMode(_SplitMode mode) {
+    setState(() {
+      _splitMode = mode;
+
+      if (mode == _SplitMode.itemized &&
+          _expenseItems.isEmpty) {
+        _addExpenseItem(
+          notify: false,
+        );
+      }
+    });
+  }
+
+  void _addExpenseItem({
+    bool notify = true,
+  }) {
+    _expenseItems.add(
+      _ExpenseItemDraft(
+        participants:
+        widget.group.members.toSet(),
+      ),
+    );
+
+    if (notify && mounted) {
+      setState(() {});
+    }
+  }
+
+  void _removeExpenseItem(int index) {
+    if (index < 0 ||
+        index >= _expenseItems.length) {
+      return;
+    }
+
+    final item =
+    _expenseItems.removeAt(index);
+
+    item.dispose();
+
+    setState(() {});
+  }
+
+  double _calculateItemsTotal() {
+    double total = 0;
+
+    for (final item in _expenseItems) {
+      total += double.tryParse(
+        item.amountController.text.trim(),
+      ) ??
+          0;
+    }
+
+    return total;
+  }
+
+  Map<String, double> _calculateEqualShares(
+      double amount,
+      ) {
+    final shares = <String, double>{};
+
+    if (_selectedMembers.isEmpty) {
+      return shares;
+    }
+
+    final share =
+        amount / _selectedMembers.length;
+
+    for (final memberId in _selectedMembers) {
+      shares[memberId] = share;
+    }
+
+    return shares;
+  }
+
+  Map<String, double> _calculateItemizedShares() {
+    final shares = <String, double>{};
+
+    for (final item in _expenseItems) {
+      final amount = double.tryParse(
+        item.amountController.text.trim(),
+      ) ??
+          0;
+
+      if (amount <= 0 ||
+          item.participants.isEmpty) {
+        continue;
+      }
+
+      final share =
+          amount / item.participants.length;
+
+      for (final memberId
+      in item.participants) {
+        shares[memberId] =
+            (shares[memberId] ?? 0) +
+                share;
+      }
+    }
+
+    return shares;
+  }
+
+  bool _validateItemizedSplit(
+      double expenseTotal,
+      ) {
+    if (_expenseItems.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Add at least one item.',
+          ),
+        ),
+      );
+
+      return false;
+    }
+
+    for (final item in _expenseItems) {
+      final name =
+      item.nameController.text.trim();
+
+      final amount = double.tryParse(
+        item.amountController.text.trim(),
+      );
+
+      if (name.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Enter a name for every item.',
+            ),
+          ),
+        );
+
+        return false;
+      }
+
+      if (amount == null || amount <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Enter a valid amount for $name.',
+            ),
+          ),
+        );
+
+        return false;
+      }
+
+      if (item.participants.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Select at least one participant for $name.',
+            ),
+          ),
+        );
+
+        return false;
+      }
+    }
+
+    final itemTotal =
+    _calculateItemsTotal();
+
+    if ((itemTotal - expenseTotal).abs() >
+        0.01) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Items total '
+                '\$${itemTotal.toStringAsFixed(2)} '
+                'must match expense total '
+                '\$${expenseTotal.toStringAsFixed(2)}.',
+          ),
+        ),
+      );
+
+      return false;
+    }
+
+    return true;
+  }
 
   @override
   void initState() {
@@ -64,62 +257,154 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
     _selectedMembers =
         widget.expense.participants.toSet();
 
+    _splitMode =
+    widget.expense.splitType == 'itemized'
+        ? _SplitMode.itemized
+        : _SplitMode.equal;
+
+    if (_splitMode == _SplitMode.itemized) {
+      for (final item in widget.expense.items) {
+        _expenseItems.add(
+          _ExpenseItemDraft(
+            name: item.name,
+            amount: item.amount.toStringAsFixed(2),
+            participants:
+            item.participants.toSet(),
+          ),
+        );
+      }
+
+      if (_expenseItems.isEmpty) {
+        _addExpenseItem(
+          notify: false,
+        );
+      }
+    }
+
     _participantsFuture = _loadParticipants();
   }
 
   Future<Map<String, _ParticipantData>> _loadParticipants() async {
+    final participants = <String, _ParticipantData>{};
+
+    final currentUser =
+        FirebaseAuth.instance.currentUser;
+
     final groupDocument = await _firestore
         .collection('groups')
         .doc(widget.group.id)
         .get();
 
-    final data = groupDocument.data() ?? {};
-    final rawDetails = data['memberDetails'];
+    final groupData = groupDocument.data() ?? {};
 
-    final memberDetails = rawDetails is Map
-        ? Map<String, dynamic>.from(rawDetails)
+    final rawMemberDetails =
+    groupData['memberDetails'];
+
+    final memberDetails = rawMemberDetails is Map
+        ? Map<String, dynamic>.from(
+      rawMemberDetails,
+    )
         : <String, dynamic>{};
 
-    final participants = <String, _ParticipantData>{};
-
     for (final memberId in widget.group.members) {
-      final rawMember = memberDetails[memberId];
+      String name = '';
+      String email = '';
+      bool isGuest =
+      memberId.startsWith('guest_');
 
-      if (rawMember is Map) {
-        final details = Map<String, dynamic>.from(rawMember);
+      final rawDetails =
+      memberDetails[memberId];
 
-        participants[memberId] = _ParticipantData(
-          name: details['name']?.toString().trim() ?? '',
-          email: details['email']?.toString().trim() ?? '',
-          isGuest: details['isGuest'] == true ||
-              memberId.startsWith('guest_'),
+      if (rawDetails is Map) {
+        final details =
+        Map<String, dynamic>.from(
+          rawDetails,
         );
 
-        continue;
+        name =
+            details['name']
+                ?.toString()
+                .trim() ??
+                '';
+
+        email =
+            details['email']
+                ?.toString()
+                .trim() ??
+                '';
+
+        isGuest =
+            details['isGuest'] == true ||
+                memberId.startsWith('guest_');
       }
 
-      if (memberId.startsWith('guest_')) {
-        participants[memberId] = const _ParticipantData(
-          name: 'Guest member',
-          email: '',
-          isGuest: true,
-        );
+      if (!isGuest) {
+        try {
+          final userDocument =
+          await _firestore
+              .collection('users')
+              .doc(memberId)
+              .get();
 
-        continue;
+          final userData =
+              userDocument.data() ?? {};
+
+          final firestoreName =
+              userData['name']
+                  ?.toString()
+                  .trim() ??
+                  '';
+
+          final firestoreEmail =
+              userData['email']
+                  ?.toString()
+                  .trim() ??
+                  '';
+
+          if (name.isEmpty &&
+              firestoreName.isNotEmpty) {
+            name = firestoreName;
+          }
+
+          if (email.isEmpty &&
+              firestoreEmail.isNotEmpty) {
+            email = firestoreEmail;
+          }
+        } catch (_) {
+          // Continue using available group member details.
+        }
       }
 
-      final userDocument = await _firestore
-          .collection('users')
-          .doc(memberId)
-          .get();
+      if (memberId == currentUser?.uid) {
+        final authName =
+            currentUser?.displayName?.trim() ?? '';
 
-      final userData = userDocument.data() ?? {};
+        final authEmail =
+            currentUser?.email?.trim() ?? '';
 
-      participants[memberId] = _ParticipantData(
-        name: userData['name']?.toString().trim() ?? '',
-        email: userData['email']?.toString().trim() ?? '',
-        isGuest: false,
-      );
+        if (name.isEmpty &&
+            authName.isNotEmpty) {
+          name = authName;
+        }
+
+        if (email.isEmpty &&
+            authEmail.isNotEmpty) {
+          email = authEmail;
+        }
+      }
+
+      if (isGuest &&
+          name.isEmpty &&
+          email.isEmpty) {
+        name = 'Guest member';
+      }
+
+      participants[memberId] =
+          _ParticipantData(
+            name: name,
+            email: email,
+            isGuest: isGuest,
+          );
     }
 
     return participants;
@@ -130,7 +415,8 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
       return;
     }
 
-    if (_selectedMembers.isEmpty) {
+    if (_splitMode == _SplitMode.equal &&
+        _selectedMembers.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Select at least one participant.'),
@@ -147,6 +433,53 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
       return;
     }
 
+    if (_splitMode == _SplitMode.itemized &&
+        !_validateItemizedSplit(amount)) {
+      return;
+    }
+
+    late List<String> expenseParticipants;
+    late List<ExpenseItem> expenseItems;
+    late Map<String, double> shares;
+
+    if (_splitMode == _SplitMode.equal) {
+      expenseParticipants =
+          _selectedMembers.toList();
+
+      expenseItems = [];
+
+      shares =
+          _calculateEqualShares(amount);
+    } else {
+      expenseItems = _expenseItems.map(
+            (item) {
+          return ExpenseItem(
+            name:
+            item.nameController.text.trim(),
+            amount: double.parse(
+              item.amountController.text.trim(),
+            ),
+            participants:
+            item.participants.toList(),
+          );
+        },
+      ).toList();
+
+      final participantIds = <String>{};
+
+      for (final item in expenseItems) {
+        participantIds.addAll(
+          item.participants,
+        );
+      }
+
+      expenseParticipants =
+          participantIds.toList();
+
+      shares =
+          _calculateItemizedShares();
+    }
+
     setState(() {
       _isLoading = true;
     });
@@ -155,10 +488,18 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
       await _expenseService.updateExpense(
         groupId: widget.group.id,
         expenseId: widget.expense.id,
-        title: _titleController.text,
+        title: _titleController.text.trim(),
         amount: amount,
         category: _category,
-        participants: _selectedMembers.toList(),
+        participants: expenseParticipants,
+        splitType:
+        _splitMode == _SplitMode.equal
+            ? 'equal'
+            : 'itemized',
+        items: expenseItems,
+        shares: shares,
+        receiptUrl:
+        widget.expense.receiptUrl,
       );
 
       if (!mounted) return;
@@ -191,6 +532,11 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
   void dispose() {
     _titleController.dispose();
     _amountController.dispose();
+
+    for (final item in _expenseItems) {
+      item.dispose();
+    }
+
     super.dispose();
   }
 
@@ -282,6 +628,45 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
                     }
                   },
                 ),
+                const SizedBox(height: 24),
+
+                Text(
+                  'Split method',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleLarge
+                      ?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+
+                const SizedBox(height: 12),
+
+                SegmentedButton<_SplitMode>(
+                  segments: const [
+                    ButtonSegment(
+                      value: _SplitMode.equal,
+                      icon: Icon(Icons.people_outline),
+                      label: Text('Equal'),
+                    ),
+                    ButtonSegment(
+                      value: _SplitMode.itemized,
+                      icon: Icon(
+                        Icons.receipt_long_outlined,
+                      ),
+                      label: Text('By item'),
+                    ),
+                  ],
+                  selected: {_splitMode},
+                  onSelectionChanged: _isLoading
+                      ? null
+                      : (selection) {
+                    _changeSplitMode(
+                      selection.first,
+                    );
+                  },
+                ),
+              if (_splitMode == _SplitMode.equal) ...[
                 const SizedBox(height: 24),
                 Row(
                   children: [
@@ -408,6 +793,72 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
                     ),
                   ),
                 ],
+                ],
+                if (_splitMode ==
+                    _SplitMode.itemized) ...[
+                  const SizedBox(height: 24),
+
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Items',
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleLarge
+                              ?.copyWith(
+                            fontWeight:
+                            FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      FilledButton.tonalIcon(
+                        onPressed:
+                        _isLoading
+                            ? null
+                            : _addExpenseItem,
+                        icon: const Icon(Icons.add),
+                        label: const Text('Add item'),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  FutureBuilder<
+                      Map<String, _ParticipantData>>(
+                    future: _participantsFuture,
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState ==
+                          ConnectionState.waiting) {
+                        return const Center(
+                          child:
+                          CircularProgressIndicator(),
+                        );
+                      }
+
+                      final participants =
+                          snapshot.data ?? {};
+
+                      return Column(
+                        children: [
+                          for (int index = 0;
+                          index <
+                              _expenseItems.length;
+                          index++)
+                            _buildExpenseItemCard(
+                              index,
+                              participants,
+                            ),
+                        ],
+                      );
+                    },
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  _buildItemizedSummary(),
+                ],
                 const SizedBox(height: 24),
                 SizedBox(
                   height: 52,
@@ -443,6 +894,211 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
 
     return amount / _selectedMembers.length;
   }
+
+  Widget _buildExpenseItemCard(
+      int index,
+      Map<String, _ParticipantData> participants,
+      ) {
+    final item =
+    _expenseItems[index];
+
+    return Card(
+      margin:
+      const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment:
+          CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Item ${index + 1}',
+                    style: const TextStyle(
+                      fontWeight:
+                      FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: _isLoading
+                      ? null
+                      : () =>
+                      _removeExpenseItem(
+                        index,
+                      ),
+                  icon: const Icon(
+                    Icons.delete_outline,
+                  ),
+                ),
+              ],
+            ),
+
+            TextFormField(
+              controller:
+              item.nameController,
+              enabled: !_isLoading,
+              decoration:
+              const InputDecoration(
+                labelText: 'Item name',
+                border:
+                OutlineInputBorder(),
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            TextFormField(
+              controller:
+              item.amountController,
+              enabled: !_isLoading,
+              keyboardType:
+              const TextInputType
+                  .numberWithOptions(
+                decimal: true,
+              ),
+              onChanged: (_) =>
+                  setState(() {}),
+              decoration:
+              const InputDecoration(
+                labelText: 'Item amount',
+                prefixText: '\$',
+                border:
+                OutlineInputBorder(),
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            const Text(
+              'Shared by',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+
+            for (final memberId
+            in widget.group.members)
+              CheckboxListTile(
+                contentPadding:
+                EdgeInsets.zero,
+                dense: true,
+                value: item.participants
+                    .contains(memberId),
+                title: Text(
+                  participants[memberId]
+                      ?.displayName ??
+                      'Unknown member',
+                ),
+                onChanged: _isLoading
+                    ? null
+                    : (selected) {
+                  setState(() {
+                    if (selected == true) {
+                      item.participants
+                          .add(memberId);
+                    } else {
+                      item.participants
+                          .remove(memberId);
+                    }
+                  });
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildItemizedSummary() {
+    final shares =
+    _calculateItemizedShares();
+
+    final itemTotal =
+    _calculateItemsTotal();
+
+    final expenseTotal =
+        double.tryParse(
+          _amountController.text.trim(),
+        ) ??
+            0;
+
+    return FutureBuilder<
+        Map<String, _ParticipantData>>(
+      future: _participantsFuture,
+      builder: (context, snapshot) {
+        final participants =
+            snapshot.data ?? {};
+
+        return Card(
+          child: Padding(
+            padding:
+            const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment:
+              CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'Split Summary',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+
+                const SizedBox(height: 10),
+
+                for (final memberId
+                in widget.group.members)
+                  if ((shares[memberId] ?? 0) >
+                      0)
+                    Padding(
+                      padding:
+                      const EdgeInsets
+                          .symmetric(
+                        vertical: 5,
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              participants[memberId]
+                                  ?.displayName ??
+                                  'Unknown member',
+                            ),
+                          ),
+                          Text(
+                            '\$${(shares[memberId] ?? 0).toStringAsFixed(2)}',
+                            style: const TextStyle(
+                              fontWeight:
+                              FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                const Divider(),
+
+                Text(
+                  'Items total: '
+                      '\$${itemTotal.toStringAsFixed(2)}',
+                ),
+
+                Text(
+                  'Expense total: '
+                      '\$${expenseTotal.toStringAsFixed(2)}',
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 }
 
 class _ParticipantData {
@@ -476,5 +1132,27 @@ class _ParticipantData {
     }
 
     return email.isEmpty ? 'Registered member' : email;
+  }
+}
+
+class _ExpenseItemDraft {
+  final TextEditingController nameController;
+  final TextEditingController amountController;
+  final Set<String> participants;
+
+  _ExpenseItemDraft({
+    String name = '',
+    String amount = '',
+    required Set<String> participants,
+  })  : nameController =
+  TextEditingController(text: name),
+        amountController =
+        TextEditingController(text: amount),
+        participants =
+        Set<String>.from(participants);
+
+  void dispose() {
+    nameController.dispose();
+    amountController.dispose();
   }
 }

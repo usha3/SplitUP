@@ -4,12 +4,13 @@ import '../../models/debt_model.dart';
 import '../../models/expense_model.dart';
 import '../../models/group_model.dart';
 import '../../models/settlement_model.dart';
-import '../../models/user_model.dart';
 import '../../services/balance_service.dart';
 import '../../services/expense_service.dart';
 import '../../services/settlement_service.dart';
 import '../../services/user_service.dart';
 import '../../utils/currency_formatter.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class BalancesScreen extends StatelessWidget {
   final GroupModel group;
@@ -141,25 +142,6 @@ class BalancesScreen extends StatelessWidget {
     }
   }
 
-  static String _displayName(
-      UserModel? user,
-      String userId,
-      ) {
-    final name = user?.name.trim() ?? '';
-
-    if (name.isNotEmpty) {
-      return name;
-    }
-
-    final email = user?.email.trim() ?? '';
-
-    if (email.isNotEmpty) {
-      return email;
-    }
-
-    return _shortId(userId);
-  }
-
   static String _shortId(String value) {
     if (value.length <= 8) {
       return value;
@@ -168,12 +150,87 @@ class BalancesScreen extends StatelessWidget {
     return '${value.substring(0, 8)}…';
   }
 
+  Future<Map<String, String>> _loadMemberNames() async {
+    final names = <String, String>{};
+
+    final firestore = FirebaseFirestore.instance;
+    final userService = UserService();
+    final currentUser = FirebaseAuth.instance.currentUser;
+
+    // Load registered users.
+    final users = await userService.getUsersByIds(
+      group.members,
+    );
+
+    users.forEach((id, user) {
+      final name = user.name.trim();
+      final email = user.email.trim();
+
+      if (name.isNotEmpty) {
+        names[id] = name;
+      } else if (id == currentUser?.uid &&
+          currentUser?.displayName != null &&
+          currentUser!.displayName!.trim().isNotEmpty) {
+        names[id] =
+            currentUser.displayName!.trim();
+      } else if (email.isNotEmpty) {
+        names[id] = email;
+      }
+    });
+
+    // Load memberDetails, including guests.
+    final groupDocument = await firestore
+        .collection('groups')
+        .doc(group.id)
+        .get();
+
+    final groupData = groupDocument.data() ?? {};
+
+    final rawMemberDetails =
+    groupData['memberDetails'];
+
+    if (rawMemberDetails is Map) {
+      final memberDetails =
+      Map<String, dynamic>.from(
+        rawMemberDetails,
+      );
+
+      for (final memberId in group.members) {
+        final rawDetails =
+        memberDetails[memberId];
+
+        if (rawDetails is! Map) {
+          continue;
+        }
+
+        final details =
+        Map<String, dynamic>.from(
+          rawDetails,
+        );
+
+        final name =
+            details['name']?.toString().trim() ?? '';
+
+        final email =
+            details['email']?.toString().trim() ?? '';
+
+        if (name.isNotEmpty) {
+          names[memberId] = name;
+        } else if (!names.containsKey(memberId) &&
+            email.isNotEmpty) {
+          names[memberId] = email;
+        }
+      }
+    }
+
+    return names;
+  }
+
   @override
   Widget build(BuildContext context) {
     final expenseService = ExpenseService();
     final settlementService = SettlementService();
     final balanceService = BalanceService();
-    final userService = UserService();
 
     return Scaffold(
       appBar: AppBar(
@@ -246,11 +303,8 @@ class BalancesScreen extends StatelessWidget {
                 settlements: settlements,
               );
 
-              return FutureBuilder<
-                  Map<String, UserModel>>(
-                future: userService.getUsersByIds(
-                  group.members,
-                ),
+              return FutureBuilder<Map<String, String>>(
+                future: _loadMemberNames(),
                 builder: (
                     context,
                     userSnapshot,
@@ -278,8 +332,8 @@ class BalancesScreen extends StatelessWidget {
                     );
                   }
 
-                  final users =
-                      userSnapshot.data ?? {};
+                  final memberNames =
+                      userSnapshot.data ?? <String, String>{};
 
                   return ListView(
                     padding:
@@ -318,11 +372,11 @@ class BalancesScreen extends StatelessWidget {
                       else
                         ...debts.map(
                               (debt) => _DebtCard(
-                            debt: debt,
-                            users: users,
-                            currencyCode:
-                            group.currencyCode,
-                            onSettle: () {
+                                debt: debt,
+                                memberNames: memberNames,
+                                currencyCode:
+                                group.currencyCode,
+                                onSettle: () {
                               _settleDebt(
                                 context: context,
                                 debt: debt,
@@ -363,23 +417,17 @@ class BalancesScreen extends StatelessWidget {
                       else
                         ...settlements.map(
                               (settlement) {
-                            final fromName =
-                            _displayName(
-                              users[
-                              settlement
-                                  .fromUserId],
-                              settlement
-                                  .fromUserId,
-                            );
+                                final fromName =
+                                    memberNames[settlement.fromUserId] ??
+                                        _shortId(
+                                          settlement.fromUserId,
+                                        );
 
-                            final toName =
-                            _displayName(
-                              users[
-                              settlement
-                                  .toUserId],
-                              settlement
-                                  .toUserId,
-                            );
+                                final toName =
+                                    memberNames[settlement.toUserId] ??
+                                        _shortId(
+                                          settlement.toUserId,
+                                        );
 
                             return Card(
                               child: ListTile(
@@ -426,28 +474,26 @@ class BalancesScreen extends StatelessWidget {
 
 class _DebtCard extends StatelessWidget {
   final DebtModel debt;
-  final Map<String, UserModel> users;
+  final Map<String, String> memberNames;
   final VoidCallback onSettle;
   final String currencyCode;
 
   const _DebtCard({
     required this.debt,
-    required this.users,
+    required this.memberNames,
     required this.onSettle,
     required this.currencyCode,
   });
 
   @override
   Widget build(BuildContext context) {
-    final fromName = _displayName(
-      users[debt.fromUserId],
-      debt.fromUserId,
-    );
+    final fromName =
+        memberNames[debt.fromUserId] ??
+            _shortId(debt.fromUserId);
 
-    final toName = _displayName(
-      users[debt.toUserId],
-      debt.toUserId,
-    );
+    final toName =
+        memberNames[debt.toUserId] ??
+            _shortId(debt.toUserId);
 
     return Card(
       child: ListTile(
@@ -471,25 +517,6 @@ class _DebtCard extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  static String _displayName(
-      UserModel? user,
-      String userId,
-      ) {
-    final name = user?.name.trim() ?? '';
-
-    if (name.isNotEmpty) {
-      return name;
-    }
-
-    final email = user?.email.trim() ?? '';
-
-    if (email.isNotEmpty) {
-      return email;
-    }
-
-    return _shortId(userId);
   }
 
   static String _shortId(String value) {
