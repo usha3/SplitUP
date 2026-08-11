@@ -1,0 +1,502 @@
+import 'package:flutter/material.dart';
+
+import '../../models/debt_model.dart';
+import '../../models/expense_model.dart';
+import '../../models/group_model.dart';
+import '../../models/settlement_model.dart';
+import '../../models/user_model.dart';
+import '../../services/balance_service.dart';
+import '../../services/expense_service.dart';
+import '../../services/settlement_service.dart';
+import '../../services/user_service.dart';
+import '../../utils/currency_formatter.dart';
+
+class BalancesScreen extends StatelessWidget {
+  final GroupModel group;
+
+  const BalancesScreen({
+    super.key,
+    required this.group,
+  });
+
+  Future<void> _settleDebt({
+    required BuildContext context,
+    required DebtModel debt,
+    required SettlementService settlementService,
+  }) async {
+    final amountController = TextEditingController(
+      text: debt.amount.toStringAsFixed(2),
+    );
+
+    final formKey = GlobalKey<FormState>();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Settle up'),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Enter the amount that was paid toward this balance.',
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: amountController,
+                  autofocus: true,
+                  keyboardType:
+                  const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: const InputDecoration(
+                    labelText: 'Payment amount',
+                    prefixIcon: Icon(Icons.attach_money),
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (value) {
+                    final amount = double.tryParse(
+                      value?.trim() ?? '',
+                    );
+
+                    if (amount == null || amount <= 0) {
+                      return 'Enter a valid payment amount';
+                    }
+
+                    if (amount > debt.amount + 0.01) {
+                      return 'Amount cannot exceed the current debt';
+                    }
+
+                    return null;
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop(false);
+              },
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (formKey.currentState?.validate() ??
+                    false) {
+                  Navigator.of(dialogContext).pop(true);
+                }
+              },
+              child: const Text('Confirm'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) {
+      amountController.dispose();
+      return;
+    }
+
+    final amount = double.parse(
+      amountController.text.trim(),
+    );
+
+    amountController.dispose();
+
+    try {
+      await settlementService.recordSettlement(
+        groupId: group.id,
+        fromUserId: debt.fromUserId,
+        toUserId: debt.toUserId,
+        amount: amount,
+      );
+
+      if (!context.mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Payment recorded successfully.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!context.mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Unable to record payment: $error',
+          ),
+        ),
+      );
+    }
+  }
+
+  static String _displayName(
+      UserModel? user,
+      String userId,
+      ) {
+    final name = user?.name.trim() ?? '';
+
+    if (name.isNotEmpty) {
+      return name;
+    }
+
+    final email = user?.email.trim() ?? '';
+
+    if (email.isNotEmpty) {
+      return email;
+    }
+
+    return _shortId(userId);
+  }
+
+  static String _shortId(String value) {
+    if (value.length <= 8) {
+      return value;
+    }
+
+    return '${value.substring(0, 8)}…';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final expenseService = ExpenseService();
+    final settlementService = SettlementService();
+    final balanceService = BalanceService();
+    final userService = UserService();
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Balances & Settlements'),
+      ),
+      body: StreamBuilder<List<ExpenseModel>>(
+        stream: expenseService.getGroupExpenses(
+          group.id,
+        ),
+        builder: (context, expenseSnapshot) {
+          if (expenseSnapshot.connectionState ==
+              ConnectionState.waiting) {
+            return const Center(
+              child: CircularProgressIndicator(),
+            );
+          }
+
+          if (expenseSnapshot.hasError) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  'Unable to load expenses: '
+                      '${expenseSnapshot.error}',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            );
+          }
+
+          final expenses =
+              expenseSnapshot.data ?? [];
+
+          return StreamBuilder<List<SettlementModel>>(
+            stream:
+            settlementService.getGroupSettlements(
+              group.id,
+            ),
+            builder: (
+                context,
+                settlementSnapshot,
+                ) {
+              if (settlementSnapshot.connectionState ==
+                  ConnectionState.waiting) {
+                return const Center(
+                  child: CircularProgressIndicator(),
+                );
+              }
+
+              if (settlementSnapshot.hasError) {
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(
+                      'Unable to load settlements: '
+                          '${settlementSnapshot.error}',
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                );
+              }
+
+              final settlements =
+                  settlementSnapshot.data ?? [];
+
+              final debts =
+              balanceService.simplifyDebts(
+                memberIds: group.members,
+                expenses: expenses,
+                settlements: settlements,
+              );
+
+              return FutureBuilder<
+                  Map<String, UserModel>>(
+                future: userService.getUsersByIds(
+                  group.members,
+                ),
+                builder: (
+                    context,
+                    userSnapshot,
+                    ) {
+                  if (userSnapshot.connectionState ==
+                      ConnectionState.waiting) {
+                    return const Center(
+                      child:
+                      CircularProgressIndicator(),
+                    );
+                  }
+
+                  if (userSnapshot.hasError) {
+                    return Center(
+                      child: Padding(
+                        padding:
+                        const EdgeInsets.all(24),
+                        child: Text(
+                          'Unable to load member names: '
+                              '${userSnapshot.error}',
+                          textAlign:
+                          TextAlign.center,
+                        ),
+                      ),
+                    );
+                  }
+
+                  final users =
+                      userSnapshot.data ?? {};
+
+                  return ListView(
+                    padding:
+                    const EdgeInsets.fromLTRB(
+                      16,
+                      16,
+                      16,
+                      32,
+                    ),
+                    children: [
+                      Text(
+                        'Balances',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleLarge
+                            ?.copyWith(
+                          fontWeight:
+                          FontWeight.bold,
+                        ),
+                      ),
+
+                      const SizedBox(height: 10),
+
+                      if (debts.isEmpty)
+                        const Card(
+                          child: Padding(
+                            padding:
+                            EdgeInsets.all(20),
+                            child: Center(
+                              child: Text(
+                                'Everyone is settled up.',
+                              ),
+                            ),
+                          ),
+                        )
+                      else
+                        ...debts.map(
+                              (debt) => _DebtCard(
+                            debt: debt,
+                            users: users,
+                            currencyCode:
+                            group.currencyCode,
+                            onSettle: () {
+                              _settleDebt(
+                                context: context,
+                                debt: debt,
+                                settlementService:
+                                settlementService,
+                              );
+                            },
+                          ),
+                        ),
+
+                      const SizedBox(height: 28),
+
+                      Text(
+                        'Settlement history',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleLarge
+                            ?.copyWith(
+                          fontWeight:
+                          FontWeight.bold,
+                        ),
+                      ),
+
+                      const SizedBox(height: 10),
+
+                      if (settlements.isEmpty)
+                        const Card(
+                          child: Padding(
+                            padding:
+                            EdgeInsets.all(20),
+                            child: Center(
+                              child: Text(
+                                'No payments recorded yet.',
+                              ),
+                            ),
+                          ),
+                        )
+                      else
+                        ...settlements.map(
+                              (settlement) {
+                            final fromName =
+                            _displayName(
+                              users[
+                              settlement
+                                  .fromUserId],
+                              settlement
+                                  .fromUserId,
+                            );
+
+                            final toName =
+                            _displayName(
+                              users[
+                              settlement
+                                  .toUserId],
+                              settlement
+                                  .toUserId,
+                            );
+
+                            return Card(
+                              child: ListTile(
+                                leading:
+                                const CircleAvatar(
+                                  child: Icon(
+                                    Icons
+                                        .payments_outlined,
+                                  ),
+                                ),
+                                title: const Text(
+                                  'Payment recorded',
+                                ),
+                                subtitle: Text(
+                                  '$fromName → $toName',
+                                ),
+                                trailing: Text(
+                                  formatCurrency(
+                                    settlement.amount,
+                                    group.currencyCode,
+                                  ),
+                                  style:
+                                  const TextStyle(
+                                    fontWeight:
+                                    FontWeight
+                                        .bold,
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                    ],
+                  );
+                },
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _DebtCard extends StatelessWidget {
+  final DebtModel debt;
+  final Map<String, UserModel> users;
+  final VoidCallback onSettle;
+  final String currencyCode;
+
+  const _DebtCard({
+    required this.debt,
+    required this.users,
+    required this.onSettle,
+    required this.currencyCode,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final fromName = _displayName(
+      users[debt.fromUserId],
+      debt.fromUserId,
+    );
+
+    final toName = _displayName(
+      users[debt.toUserId],
+      debt.toUserId,
+    );
+
+    return Card(
+      child: ListTile(
+        leading: const CircleAvatar(
+          child: Icon(
+            Icons.swap_horiz_rounded,
+          ),
+        ),
+        title: Text(
+          '$fromName owes $toName',
+        ),
+        subtitle: Text(
+          formatCurrency(
+            debt.amount,
+            currencyCode,
+          ),
+        ),
+        trailing: FilledButton.tonal(
+          onPressed: onSettle,
+          child: const Text('Settle Up'),
+        ),
+      ),
+    );
+  }
+
+  static String _displayName(
+      UserModel? user,
+      String userId,
+      ) {
+    final name = user?.name.trim() ?? '';
+
+    if (name.isNotEmpty) {
+      return name;
+    }
+
+    final email = user?.email.trim() ?? '';
+
+    if (email.isNotEmpty) {
+      return email;
+    }
+
+    return _shortId(userId);
+  }
+
+  static String _shortId(String value) {
+    if (value.length <= 8) {
+      return value;
+    }
+
+    return '${value.substring(0, 8)}…';
+  }
+}
