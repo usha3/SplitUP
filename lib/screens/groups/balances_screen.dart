@@ -226,6 +226,46 @@ class BalancesScreen extends StatelessWidget {
     return names;
   }
 
+  static String _formatSettlementDate(
+      DateTime date,
+      ) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+
+    final hour =
+    date.hour == 0
+        ? 12
+        : date.hour > 12
+        ? date.hour - 12
+        : date.hour;
+
+    final minute =
+    date.minute
+        .toString()
+        .padLeft(2, '0');
+
+    final period =
+    date.hour >= 12
+        ? 'PM'
+        : 'AM';
+
+    return '${months[date.month - 1]} '
+        '${date.day}, ${date.year} • '
+        '$hour:$minute $period';
+  }
+
   @override
   Widget build(BuildContext context) {
     final expenseService = ExpenseService();
@@ -429,35 +469,37 @@ class BalancesScreen extends StatelessWidget {
                                           settlement.toUserId,
                                         );
 
-                            return Card(
-                              child: ListTile(
-                                leading:
-                                const CircleAvatar(
-                                  child: Icon(
-                                    Icons
-                                        .payments_outlined,
+                                return Card(
+                                  child: ListTile(
+                                    leading: const CircleAvatar(
+                                      child: Icon(
+                                        Icons.payments_outlined,
+                                      ),
+                                    ),
+                                    title: Text(
+                                      '$fromName paid $toName',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    subtitle: Text(
+                                      settlement.createdAt != null
+                                          ? _formatSettlementDate(
+                                        settlement.createdAt!,
+                                      )
+                                          : 'Payment recorded',
+                                    ),
+                                    trailing: Text(
+                                      formatCurrency(
+                                        settlement.amount,
+                                        group.currencyCode,
+                                      ),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
                                   ),
-                                ),
-                                title: const Text(
-                                  'Payment recorded',
-                                ),
-                                subtitle: Text(
-                                  '$fromName → $toName',
-                                ),
-                                trailing: Text(
-                                  formatCurrency(
-                                    settlement.amount,
-                                    group.currencyCode,
-                                  ),
-                                  style:
-                                  const TextStyle(
-                                    fontWeight:
-                                    FontWeight
-                                        .bold,
-                                  ),
-                                ),
-                              ),
-                            );
+                                );
                           },
                         ),
                     ],
