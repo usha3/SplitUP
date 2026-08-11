@@ -13,6 +13,12 @@ import '../recurring/recurring_expenses_screen.dart';
 import '../../services/recurring_expense_service.dart';
 import 'group_expenses_screen.dart';
 import 'balances_screen.dart';
+import '../../models/expense_model.dart';
+import '../../utils/currency_formatter.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
+import '../../models/settlement_model.dart';
+import '../../services/balance_service.dart';
 
 class GroupDetailsScreen extends StatefulWidget {
   final GroupModel group;
@@ -31,6 +37,12 @@ class _GroupDetailsScreenState
     extends State<GroupDetailsScreen> {
   final RecurringExpenseService _recurringService =
   RecurringExpenseService();
+  final ExpenseService _expenseService = ExpenseService();
+  final SettlementService _settlementService =
+  SettlementService();
+
+  final BalanceService _balanceService =
+  BalanceService();
 
   @override
   void initState() {
@@ -148,6 +160,172 @@ class _GroupDetailsScreenState
               ),
               isThreeLine: widget.group.createdAt != null,
             ),
+          ),
+          const SizedBox(height: 20),
+
+          Text(
+            'Overview',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+
+          const SizedBox(height: 10),
+
+          StreamBuilder<List<ExpenseModel>>(
+            stream: _expenseService.getGroupExpenses(
+              widget.group.id,
+            ),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState ==
+                  ConnectionState.waiting) {
+                return const Card(
+                  child: Padding(
+                    padding: EdgeInsets.all(20),
+                    child: Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                );
+              }
+
+              if (snapshot.hasError) {
+                return const Card(
+                  child: Padding(
+                    padding: EdgeInsets.all(20),
+                    child: Text(
+                      'Unable to load group summary.',
+                    ),
+                  ),
+                );
+              }
+
+              final expenses = snapshot.data ?? [];
+
+              final totalSpending = expenses.fold<double>(
+                0,
+                    (sum, expense) => sum + expense.amount,
+              );
+
+              return StreamBuilder<List<SettlementModel>>(
+                stream: _settlementService.getGroupSettlements(
+                  widget.group.id,
+                ),
+                builder: (context, settlementSnapshot) {
+                  if (settlementSnapshot.connectionState ==
+                      ConnectionState.waiting) {
+                    return const Card(
+                      child: Padding(
+                        padding: EdgeInsets.all(20),
+                        child: Center(
+                          child: CircularProgressIndicator(),
+                        ),
+                      ),
+                    );
+                  }
+
+                  final settlements =
+                      settlementSnapshot.data ?? [];
+
+                  final debts = _balanceService.simplifyDebts(
+                    memberIds: widget.group.members,
+                    expenses: expenses,
+                    settlements: settlements,
+                  );
+
+                  final currentUserId =
+                      FirebaseAuth.instance.currentUser?.uid;
+
+                  double youOwe = 0;
+                  double youAreOwed = 0;
+
+                  if (currentUserId != null) {
+                    for (final debt in debts) {
+                      if (debt.fromUserId == currentUserId) {
+                        youOwe += debt.amount;
+                      }
+
+                      if (debt.toUserId == currentUserId) {
+                        youAreOwed += debt.amount;
+                      }
+                    }
+                  }
+
+                  String balanceText;
+
+                  if (youOwe > 0) {
+                    balanceText =
+                    'You owe ${formatCurrency(
+                      youOwe,
+                      widget.group.currencyCode,
+                    )}';
+                  } else if (youAreOwed > 0) {
+                    balanceText =
+                    'Owed ${formatCurrency(
+                      youAreOwed,
+                      widget.group.currencyCode,
+                    )}';
+                  } else {
+                    balanceText = 'Settled up';
+                  }
+
+                  return Column(
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _OverviewCard(
+                              icon: Icons.payments_outlined,
+                              label: 'Total Spending',
+                              value: formatCurrency(
+                                totalSpending,
+                                widget.group.currencyCode,
+                              ),
+                            ),
+                          ),
+
+                          const SizedBox(width: 12),
+
+                          Expanded(
+                            child: _OverviewCard(
+                              icon: Icons.receipt_long_outlined,
+                              label: 'Expenses',
+                              value: '${expenses.length}',
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 12),
+
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _OverviewCard(
+                              icon:
+                              Icons.account_balance_wallet_outlined,
+                              label: 'Your Balance',
+                              value: balanceText,
+                            ),
+                          ),
+
+                          const SizedBox(width: 12),
+
+                          Expanded(
+                            child: _OverviewCard(
+                              icon: Icons.people_outline,
+                              label: 'Members',
+                              value:
+                              '${widget.group.members.length}',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  );
+                },
+              );
+            },
           ),
           const SizedBox(height: 20),
 
@@ -320,5 +498,55 @@ class _GroupDetailsScreenState
     ];
 
     return '${months[date.month - 1]} ${date.day}, ${date.year}';
+  }
+}
+
+class _OverviewCard extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _OverviewCard({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon),
+
+            const SizedBox(height: 12),
+
+            Text(
+              label,
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium,
+            ),
+
+            const SizedBox(height: 4),
+
+            Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context)
+                  .textTheme
+                  .titleLarge
+                  ?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
