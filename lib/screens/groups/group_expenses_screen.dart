@@ -8,6 +8,7 @@ import 'add_expense_screen.dart';
 import 'edit_expense_screen.dart';
 import 'receipt_viewer_screen.dart';
 import '../expenses/expense_history_screen.dart';
+import '../expenses/expense_analytics_screen.dart';
 
 class GroupExpensesScreen extends StatelessWidget {
   final GroupModel group;
@@ -232,6 +233,8 @@ class GroupExpensesScreen extends StatelessWidget {
                 ),
               ),
 
+              const SizedBox(height: 20),
+
               Card(
                 child: ListTile(
                   leading: const CircleAvatar(
@@ -255,6 +258,39 @@ class GroupExpensesScreen extends StatelessWidget {
                     Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (_) => ExpenseHistoryScreen(
+                          group: group,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              Card(
+                child: ListTile(
+                  leading: const CircleAvatar(
+                    child: Icon(
+                      Icons.analytics_outlined,
+                    ),
+                  ),
+                  title: const Text(
+                    'Expense Analytics',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  subtitle: const Text(
+                    'View spending by category and trends',
+                  ),
+                  trailing: const Icon(
+                    Icons.chevron_right,
+                  ),
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => ExpenseAnalyticsScreen(
                           group: group,
                         ),
                       ),
