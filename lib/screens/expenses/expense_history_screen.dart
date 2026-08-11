@@ -4,6 +4,7 @@ import '../../models/expense_model.dart';
 import '../../models/group_model.dart';
 import '../../services/expense_service.dart';
 import '../../utils/currency_formatter.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class ExpenseHistoryScreen extends StatefulWidget {
   final GroupModel group;
@@ -26,12 +27,16 @@ class _ExpenseHistoryScreenState
   String _selectedPeriod = 'All';
   String _selectedCategory = 'All';
   String _selectedType = 'All';
+  String _selectedSplitType = 'All';
+  String _selectedMember = 'All';
 
   void _clearFilters() {
     setState(() {
       _selectedPeriod = 'All';
       _selectedCategory = 'All';
       _selectedType = 'All';
+      _selectedSplitType = 'All';
+      _selectedMember = 'All';
     });
   }
 
@@ -82,8 +87,130 @@ class _ExpenseHistoryScreenState
         return false;
       }
 
+      // Split type
+      if (_selectedSplitType == 'Equal' &&
+          expense.splitType != 'equal') {
+        return false;
+      }
+
+      if (_selectedSplitType == 'By item' &&
+          expense.splitType != 'itemized') {
+        return false;
+      }
+
+// Member
+      if (_selectedMember != 'All') {
+        final memberId = _selectedMember;
+
+        if (!expense.participants.contains(memberId)) {
+          return false;
+        }
+      }
+
       return true;
     }).toList();
+  }
+
+  Future<Map<String, String>> _loadMemberNames() async {
+    final names = <String, String>{};
+
+    final firestore = FirebaseFirestore.instance;
+
+    final groupDocument = await firestore
+        .collection('groups')
+        .doc(widget.group.id)
+        .get();
+
+    final groupData = groupDocument.data() ?? {};
+
+    final rawMemberDetails =
+    groupData['memberDetails'];
+
+    final memberDetails = rawMemberDetails is Map
+        ? Map<String, dynamic>.from(
+      rawMemberDetails,
+    )
+        : <String, dynamic>{};
+
+    for (final memberId in widget.group.members) {
+      String name = '';
+      String email = '';
+
+      final isGuest =
+      memberId.startsWith('guest_');
+
+      // Read group member details first.
+      final rawDetails =
+      memberDetails[memberId];
+
+      if (rawDetails is Map) {
+        final details =
+        Map<String, dynamic>.from(
+          rawDetails,
+        );
+
+        name =
+            details['name']
+                ?.toString()
+                .trim() ??
+                '';
+
+        email =
+            details['email']
+                ?.toString()
+                .trim() ??
+                '';
+      }
+
+      // For registered users, prefer the name
+      // stored in the users collection.
+      if (!isGuest) {
+        try {
+          final userDocument = await firestore
+              .collection('users')
+              .doc(memberId)
+              .get();
+
+          final userData =
+              userDocument.data() ?? {};
+
+          final userName =
+              userData['name']
+                  ?.toString()
+                  .trim() ??
+                  '';
+
+          final userEmail =
+              userData['email']
+                  ?.toString()
+                  .trim() ??
+                  '';
+
+          if (userName.isNotEmpty) {
+            name = userName;
+          }
+
+          if (email.isEmpty &&
+              userEmail.isNotEmpty) {
+            email = userEmail;
+          }
+        } catch (_) {
+          // Continue with group member details.
+        }
+      }
+
+      if (name.isNotEmpty) {
+        names[memberId] = name;
+      } else if (email.isNotEmpty) {
+        names[memberId] = email;
+      } else if (isGuest) {
+        names[memberId] = 'Guest member';
+      } else {
+        names[memberId] = 'Member';
+      }
+    }
+
+    return names;
   }
 
   @override
@@ -135,13 +262,35 @@ class _ExpenseHistoryScreenState
           final filteredTotal =
           filteredExpenses.fold<double>(
             0,
-                (sum, expense) =>
-            sum + expense.amount,
+                (total, expense) =>
+            total + expense.amount,
           );
 
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
+          return FutureBuilder<Map<String, String>>(
+            future: _loadMemberNames(),
+            builder: (context, memberSnapshot) {
+              if (memberSnapshot.connectionState ==
+                  ConnectionState.waiting) {
+                return const Center(
+                  child: CircularProgressIndicator(),
+                );
+              }
+
+              if (memberSnapshot.hasError) {
+                return Center(
+                  child: Text(
+                    'Unable to load member names: '
+                        '${memberSnapshot.error}',
+                  ),
+                );
+              }
+
+              final memberNames =
+                  memberSnapshot.data ?? <String, String>{};
+
+              return ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
               Text(
                 'Filters',
                 style: Theme.of(context)
@@ -244,6 +393,68 @@ class _ExpenseHistoryScreenState
                 },
               ),
 
+              const SizedBox(height: 12),
+
+              DropdownButtonFormField<String>(
+                initialValue: _selectedSplitType,
+                decoration: const InputDecoration(
+                  labelText: 'Split type',
+                  border: OutlineInputBorder(),
+                ),
+                items: const [
+                  DropdownMenuItem(
+                    value: 'All',
+                    child: Text('All split types'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'Equal',
+                    child: Text('Equal'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'By item',
+                    child: Text('By item'),
+                  ),
+                ],
+                onChanged: (value) {
+                  if (value == null) return;
+
+                  setState(() {
+                    _selectedSplitType = value;
+                  });
+                },
+              ),
+
+              const SizedBox(height: 12),
+
+              DropdownButtonFormField<String>(
+                initialValue: _selectedMember,
+                decoration: const InputDecoration(
+                  labelText: 'Member',
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  const DropdownMenuItem(
+                    value: 'All',
+                    child: Text('All members'),
+                  ),
+                  ...widget.group.members.map(
+                        (memberId) => DropdownMenuItem(
+                      value: memberId,
+                      child: Text(
+                        memberNames[memberId] ?? 'Member',
+                      ),
+                    ),
+                  ),
+                ],
+                onChanged: (value) {
+                  if (value == null) return;
+
+                  setState(() {
+                    _selectedMember = value;
+                  });
+                },
+              ),
+
               const SizedBox(height: 24),
 
               Card(
@@ -293,7 +504,10 @@ class _ExpenseHistoryScreenState
                         expense.title,
                       ),
                       subtitle: Text(
-                        expense.category,
+                        '${expense.category} • '
+                            '${expense.splitType == 'itemized'
+                            ? 'By item'
+                            : 'Equal'}',
                       ),
                       trailing: Text(
                         formatCurrency(
@@ -308,6 +522,8 @@ class _ExpenseHistoryScreenState
                   ),
                 ),
             ],
+              );
+            },
           );
         },
       ),
