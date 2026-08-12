@@ -7,9 +7,9 @@ import '../../utils/currency_formatter.dart';
 import 'add_expense_screen.dart';
 import 'edit_expense_screen.dart';
 import 'receipt_viewer_screen.dart';
-import '../expenses/expense_history_screen.dart';
-import '../expenses/expense_analytics_screen.dart';
-import '../expenses/expense_details_screen.dart';
+import 'expense_history_screen.dart';
+import 'expense_analytics_screen.dart';
+import 'expense_details_screen.dart';
 
 class GroupExpensesScreen extends StatelessWidget {
   final GroupModel group;

@@ -4,14 +4,14 @@ import '../../models/group_model.dart';
 import '../../services/expense_service.dart';
 import '../../services/settlement_service.dart';
 import '../../services/user_service.dart';
-import 'add_expense_screen.dart';
+import '../expenses/add_expense_screen.dart';
 import 'manage_members_screen.dart';
 import 'group_report_screen.dart';
 import '../../widgets/budget_progress_card.dart';
 import '../budget/set_budget_screen.dart';
 import '../recurring/recurring_expenses_screen.dart';
 import '../../services/recurring_expense_service.dart';
-import 'group_expenses_screen.dart';
+import '../expenses/group_expenses_screen.dart';
 import 'balances_screen.dart';
 import '../../models/expense_model.dart';
 import '../../utils/currency_formatter.dart';
@@ -19,6 +19,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../models/settlement_model.dart';
 import '../../services/balance_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class GroupDetailsScreen extends StatefulWidget {
   final GroupModel group;
@@ -101,14 +102,77 @@ class _GroupDetailsScreenState
                   .getGroupSettlements(widget.group.id)
                   .first;
 
-              final users =
-              await userService.getUsersByIds(widget.group.members);
-
               final memberNames = <String, String>{};
 
+// 1. Load registered users
+              final users =
+              await userService.getUsersByIds(
+                widget.group.members,
+              );
+
               users.forEach((id, user) {
-                memberNames[id] = user.name;
+                final name = user.name.trim();
+                final email = user.email.trim();
+
+                if (name.isNotEmpty) {
+                  memberNames[id] = name;
+                } else if (email.isNotEmpty) {
+                  memberNames[id] = email;
+                }
               });
+
+// 2. Load guest/memberDetails from the group document
+              final groupDocument = await FirebaseFirestore.instance
+                  .collection('groups')
+                  .doc(widget.group.id)
+                  .get();
+
+              final groupData = groupDocument.data() ?? {};
+
+              final rawMemberDetails =
+              groupData['memberDetails'];
+
+              if (rawMemberDetails is Map) {
+                final memberDetails =
+                Map<String, dynamic>.from(
+                  rawMemberDetails,
+                );
+
+                for (final memberId
+                in widget.group.members) {
+                  final rawDetails =
+                  memberDetails[memberId];
+
+                  if (rawDetails is! Map) {
+                    continue;
+                  }
+
+                  final details =
+                  Map<String, dynamic>.from(
+                    rawDetails,
+                  );
+
+                  final name =
+                      details['name']
+                          ?.toString()
+                          .trim() ??
+                          '';
+
+                  final email =
+                      details['email']
+                          ?.toString()
+                          .trim() ??
+                          '';
+
+                  if (name.isNotEmpty) {
+                    memberNames[memberId] = name;
+                  } else if (!memberNames
+                      .containsKey(memberId) &&
+                      email.isNotEmpty) {
+                    memberNames[memberId] = email;
+                  }
+                }
+              }
 
               if (!context.mounted) return;
 
@@ -204,7 +268,8 @@ class _GroupDetailsScreenState
 
               final totalSpending = expenses.fold<double>(
                 0,
-                    (sum, expense) => sum + expense.amount,
+                    (total, expense) =>
+                total + expense.amount,
               );
 
               return StreamBuilder<List<SettlementModel>>(

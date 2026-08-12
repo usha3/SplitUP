@@ -51,8 +51,20 @@ class ExpenseAnalyticsScreen extends StatelessWidget {
 
           final totalSpending = expenses.fold<double>(
             0,
-                (sum, expense) => sum + expense.amount,
+                (total, expense) =>
+            total + expense.amount,
           );
+
+          double equalSplitTotal = 0;
+          double itemizedSplitTotal = 0;
+
+          for (final expense in expenses) {
+            if (expense.splitType == 'itemized') {
+              itemizedSplitTotal += expense.amount;
+            } else {
+              equalSplitTotal += expense.amount;
+            }
+          }
 
           final categoryTotals = <String, double>{};
 
@@ -175,19 +187,75 @@ class ExpenseAnalyticsScreen extends StatelessWidget {
                   ),
                 ),
 
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
 
-              Text(
-                'Spending by Category',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleLarge
-                    ?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+              Row(
+                children: [
+                  Expanded(
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          children: [
+                            const Icon(
+                              Icons.people_outline,
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Equal Split',
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              formatCurrency(
+                                equalSplitTotal,
+                                group.currencyCode,
+                              ),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 17,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(width: 12),
+
+                  Expanded(
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          children: [
+                            const Icon(
+                              Icons.receipt_long_outlined,
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'By Item',
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              formatCurrency(
+                                itemizedSplitTotal,
+                                group.currencyCode,
+                              ),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 17,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
 
-              const SizedBox(height: 28),
+              const SizedBox(height: 24),
 
               Text(
                 'Monthly Spending',
@@ -409,6 +477,18 @@ class ExpenseAnalyticsScreen extends StatelessWidget {
                     );
                   },
                 ),
+
+              const SizedBox(height: 24),
+
+              Text(
+                'Spending by Category',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
 
               const SizedBox(height: 10),
 

@@ -21,10 +21,42 @@ class ReportService {
   }) async {
     final document = pw.Document();
 
+    final memberShareTotals =
+    <String, double>{};
+
+    for (final expense in expenses) {
+      for (final entry
+      in expense.shares.entries) {
+        memberShareTotals[entry.key] =
+            (memberShareTotals[entry.key] ?? 0) +
+                entry.value;
+      }
+    }
+
+    final itemizedExpenses = expenses
+        .where(
+          (expense) =>
+      expense.splitType == 'itemized' &&
+          expense.items.isNotEmpty,
+    )
+        .toList();
+
     final totalSpending = expenses.fold<double>(
       0,
-          (sum, expense) => sum + expense.amount,
+          (total, expense) =>
+      total + expense.amount,
     );
+
+    double equalSplitTotal = 0;
+    double itemizedSplitTotal = 0;
+
+    for (final expense in expenses) {
+      if (expense.splitType == 'itemized') {
+        itemizedSplitTotal += expense.amount;
+      } else {
+        equalSplitTotal += expense.amount;
+      }
+    }
 
     document.addPage(
       pw.MultiPage(
@@ -112,6 +144,21 @@ class ReportService {
                   label: 'Settlements',
                   value: '${settlements.length}',
                 ),
+                _summaryBox(
+                  label: 'Equal split',
+                  value: formatCurrency(
+                    equalSplitTotal,
+                    group.currencyCode,
+                  ),
+                ),
+
+                _summaryBox(
+                  label: 'By item',
+                  value: formatCurrency(
+                    itemizedSplitTotal,
+                    group.currencyCode,
+                  ),
+                ),
               ],
             ),
             pw.SizedBox(height: 28),
@@ -154,54 +201,201 @@ class ReportService {
                   'Title',
                   'Category',
                   'Paid by',
+                  'Split',
                   'Participants',
                   'Total',
-                  'Each',
                 ],
+
                 data: expenses.map((expense) {
                   return [
-                    _formatNullableDate(expense.createdAt),
+                    _formatNullableDate(
+                      expense.createdAt,
+                    ),
+
                     expense.title,
+
                     expense.category,
+
                     memberNames[expense.paidBy] ??
                         _shortId(expense.paidBy),
+
+                    expense.splitType == 'itemized'
+                        ? 'By item'
+                        : 'Equal',
+
                     expense.participants
                         .map(
                           (id) =>
-                      memberNames[id] ?? _shortId(id),
+                      memberNames[id] ??
+                          _shortId(id),
                     )
                         .join(', '),
+
                     formatCurrency(
                       expense.amount,
                       group.currencyCode,
                     ),
-
-                    formatCurrency(
-                      expense.amountPerPerson,
-                      group.currencyCode,
-                    ),
                   ];
                 }).toList(),
+
                 headerStyle: pw.TextStyle(
                   fontWeight: pw.FontWeight.bold,
                   fontSize: 8,
                 ),
-                headerDecoration: const pw.BoxDecoration(
+
+                headerDecoration:
+                const pw.BoxDecoration(
                   color: PdfColors.grey300,
                 ),
-                cellPadding: const pw.EdgeInsets.all(5),
-                cellStyle: const pw.TextStyle(fontSize: 7),
+
+                cellPadding:
+                const pw.EdgeInsets.all(5),
+
+                cellStyle:
+                const pw.TextStyle(
+                  fontSize: 7,
+                ),
+
                 columnWidths: {
-                  0: const pw.FlexColumnWidth(1.2),
+                  0: const pw.FlexColumnWidth(1.1),
                   1: const pw.FlexColumnWidth(1.5),
                   2: const pw.FlexColumnWidth(1.1),
                   3: const pw.FlexColumnWidth(1.2),
-                  4: const pw.FlexColumnWidth(1.8),
-                  5: const pw.FlexColumnWidth(1),
+                  4: const pw.FlexColumnWidth(0.9),
+                  5: const pw.FlexColumnWidth(1.8),
                   6: const pw.FlexColumnWidth(1),
                 },
               ),
+
+// ADD ITEMIZED DETAILS HERE
+            if (itemizedExpenses.isNotEmpty) ...[
+              pw.SizedBox(height: 28),
+
+              pw.Text(
+                'Itemized Expense Details',
+                style: _sectionTitleStyle(),
+              ),
+
+              pw.SizedBox(height: 10),
+
+              ...itemizedExpenses.map(
+                    (expense) => pw.Container(
+                  margin: const pw.EdgeInsets.only(
+                    bottom: 16,
+                  ),
+                  padding: const pw.EdgeInsets.all(12),
+                  decoration: pw.BoxDecoration(
+                    border: pw.Border.all(
+                      color: PdfColors.grey300,
+                    ),
+                    borderRadius:
+                    pw.BorderRadius.circular(6),
+                  ),
+                  child: pw.Column(
+                    crossAxisAlignment:
+                    pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        expense.title,
+                        style: pw.TextStyle(
+                          fontSize: 13,
+                          fontWeight:
+                          pw.FontWeight.bold,
+                        ),
+                      ),
+
+                      pw.SizedBox(height: 8),
+
+                      pw.TableHelper.fromTextArray(
+                        headers: const [
+                          'Item',
+                          'Amount',
+                          'Shared by',
+                        ],
+                        data: expense.items.map(
+                              (item) {
+                            return [
+                              item.name,
+                              formatCurrency(
+                                item.amount,
+                                group.currencyCode,
+                              ),
+                              item.participants
+                                  .map(
+                                    (id) =>
+                                memberNames[id] ??
+                                    _shortId(id),
+                              )
+                                  .join(', '),
+                            ];
+                          },
+                        ).toList(),
+                        headerStyle: pw.TextStyle(
+                          fontWeight:
+                          pw.FontWeight.bold,
+                        ),
+                        headerDecoration:
+                        const pw.BoxDecoration(
+                          color: PdfColors.grey200,
+                        ),
+                        cellPadding:
+                        const pw.EdgeInsets.all(6),
+                        cellStyle:
+                        const pw.TextStyle(
+                          fontSize: 8,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+
             pw.SizedBox(height: 28),
+
+            pw.Text(
+              'Member Expense Shares',
+              style: _sectionTitleStyle(),
+            ),
+
+            pw.SizedBox(height: 10),
+
+            if (memberShareTotals.isEmpty)
+              pw.Text(
+                'No member share data available.',
+              )
+            else
+              pw.TableHelper.fromTextArray(
+                headers: const [
+                  'Member',
+                  'Expense Share',
+                ],
+                data: memberShareTotals.entries
+                    .map(
+                      (entry) => [
+                    memberNames[entry.key] ??
+                        _shortId(entry.key),
+
+                    formatCurrency(
+                      entry.value,
+                      group.currencyCode,
+                    ),
+                  ],
+                )
+                    .toList(),
+                headerStyle: pw.TextStyle(
+                  fontWeight: pw.FontWeight.bold,
+                ),
+                headerDecoration:
+                const pw.BoxDecoration(
+                  color: PdfColors.grey300,
+                ),
+                cellPadding:
+                const pw.EdgeInsets.all(7),
+              ),
+
+            pw.SizedBox(height: 28),
+
             pw.Text(
               'Settlement history',
               style: _sectionTitleStyle(),
@@ -260,28 +454,62 @@ class ReportService {
         'Title',
         'Category',
         'Paid By',
+        'Split Type',
         'Participant Count',
         'Participants',
         'Total Amount',
-        'Amount Per Person',
+        'Member Shares',
+        'Items',
       ],
       ...expenses.map(
             (expense) => [
           group.name,
           expense.id,
-          _formatNullableDate(expense.createdAt),
+          _formatNullableDate(
+            expense.createdAt,
+          ),
           expense.title,
           expense.category,
+
           memberNames[expense.paidBy] ??
               _shortId(expense.paidBy),
+
+          expense.splitType == 'itemized'
+              ? 'By item'
+              : 'Equal',
+
           expense.participants.length,
+
           expense.participants
               .map(
-                (id) => memberNames[id] ?? _shortId(id),
+                (id) =>
+            memberNames[id] ??
+                _shortId(id),
           )
               .join(' | '),
+
           expense.amount.toStringAsFixed(2),
-          expense.amountPerPerson.toStringAsFixed(2),
+
+          expense.shares.entries
+              .map(
+                (entry) =>
+            '${memberNames[entry.key] ?? _shortId(entry.key)}: '
+                '${entry.value.toStringAsFixed(2)}',
+          )
+              .join(' | '),
+
+          expense.items
+              .map(
+                (item) =>
+            '${item.name}: '
+                '${item.amount.toStringAsFixed(2)} '
+                '[${item.participants.map(
+                  (id) =>
+              memberNames[id] ??
+                  _shortId(id),
+            ).join(', ')}]',
+          )
+              .join(' | '),
         ],
       ),
     ];
