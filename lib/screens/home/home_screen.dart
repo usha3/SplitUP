@@ -15,6 +15,8 @@ import '../profile/edit_profile_screen.dart';
 import '../analytics/analytics_screen.dart';
 import '../../services/notification_service.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import '../../services/in_app_notification_service.dart';
+import '../notifications/notifications_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -28,6 +30,9 @@ class _HomeScreenState extends State<HomeScreen> {
   final GroupService _groupService = GroupService();
   final NotificationService _notificationService =
   NotificationService();
+  final InAppNotificationService
+  _inAppNotificationService =
+  InAppNotificationService();
 
   int _selectedIndex = 0;
 
@@ -115,19 +120,42 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('SplitUP'),
         actions: [
-          IconButton(
-            tooltip: 'Notifications',
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Notifications coming soon.'),
-                ),
-              );
-            },
-            icon: const Icon(
-              Icons.notifications_none_rounded,
+          if (user != null)
+            StreamBuilder<int>(
+              stream: _inAppNotificationService
+                  .getUnreadCount(user.uid),
+              builder: (context, snapshot) {
+                final unreadCount =
+                    snapshot.data ?? 0;
+
+                return IconButton(
+                  tooltip: 'Notifications',
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                        const NotificationsScreen(),
+                      ),
+                    );
+                  },
+                  icon: Badge(
+                    isLabelVisible:
+                    unreadCount > 0,
+                    label: Text(
+                      unreadCount > 99
+                          ? '99+'
+                          : '$unreadCount',
+                    ),
+                    child: Icon(
+                      unreadCount > 0
+                          ? Icons.notifications_rounded
+                          : Icons
+                          .notifications_none_rounded,
+                    ),
+                  ),
+                );
+              },
             ),
-          ),
           PopupMenuButton<String>(
             onSelected: (value) {
               if (value == 'logout') {
@@ -1270,7 +1298,14 @@ class _ProfileTab extends StatelessWidget {
                 title: const Text('Notifications'),
                 trailing:
                 const Icon(Icons.chevron_right),
-                onTap: () {},
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                      const NotificationsScreen(),
+                    ),
+                  );
+                },
               ),
             ],
           ),

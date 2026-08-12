@@ -2,17 +2,27 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../models/expense_model.dart';
+import '../services/in_app_notification_service.dart';
+import 'package:flutter/foundation.dart';
 
 class ExpenseService {
   final FirebaseFirestore _firestore;
   final FirebaseAuth _auth;
+  final InAppNotificationService
+  _inAppNotificationService;
 
   ExpenseService({
     FirebaseFirestore? firestore,
     FirebaseAuth? auth,
+    InAppNotificationService?
+    inAppNotificationService,
   })  : _firestore =
       firestore ?? FirebaseFirestore.instance,
-        _auth = auth ?? FirebaseAuth.instance;
+        _auth =
+            auth ?? FirebaseAuth.instance,
+        _inAppNotificationService =
+            inAppNotificationService ??
+                InAppNotificationService();
 
   Stream<List<ExpenseModel>> getGroupExpenses(
       String groupId,
@@ -146,6 +156,18 @@ class ExpenseService {
       expense.toFirestore(),
     );
 
+// Create notifications only after the expense
+// has been successfully saved.
+    await _createExpenseNotifications(
+      groupId: groupId,
+      expenseId: document.id,
+      expenseTitle: title.trim(),
+      amount: amount,
+      participants: participants,
+      shares: shares,
+      createdByUserId: user.uid,
+    );
+
     return document.id;
   }
 
@@ -209,6 +231,69 @@ class ExpenseService {
       'updatedAt':
       FieldValue.serverTimestamp(),
     });
+  }
+
+  Future<void> _createExpenseNotifications({
+    required String groupId,
+    required String expenseId,
+    required String expenseTitle,
+    required double amount,
+    required List<String> participants,
+    required Map<String, double> shares,
+    required String createdByUserId,
+  }) async {
+    try {
+      final groupDocument = await _firestore
+          .collection('groups')
+          .doc(groupId)
+          .get();
+
+      final groupData =
+          groupDocument.data() ?? {};
+
+      final groupName =
+          groupData['name']
+              ?.toString()
+              .trim() ??
+              'your group';
+
+      for (final participantId in participants) {
+        // Don't notify the person who created the expense.
+        if (participantId == createdByUserId) {
+          continue;
+        }
+
+        // Guest members don't have user accounts.
+        if (participantId.startsWith('guest_')) {
+          continue;
+        }
+
+        final participantShare =
+            shares[participantId] ??
+                (participants.isNotEmpty
+                    ? amount / participants.length
+                    : 0);
+
+        await _inAppNotificationService
+            .createNotification(
+          userId: participantId,
+          type: 'expense_added',
+          title: 'New expense added',
+          message:
+          '$expenseTitle was added in $groupName. '
+              'Your share is '
+              '\$${participantShare.toStringAsFixed(2)}.',
+          groupId: groupId,
+          expenseId: expenseId,
+        );
+      }
+    } catch (error) {
+      // Expense creation must not fail just because
+      // a notification could not be created.
+      debugPrint(
+        'Unable to create expense notifications: $error',
+      );
+    }
   }
 
   Future<void> deleteExpense({

@@ -11,6 +11,7 @@ import '../../services/user_service.dart';
 import '../../utils/currency_formatter.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../../services/in_app_notification_service.dart';
 
 class BalancesScreen extends StatelessWidget {
   final GroupModel group;
@@ -136,6 +137,89 @@ class BalancesScreen extends StatelessWidget {
         SnackBar(
           content: Text(
             'Unable to record payment: $error',
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _sendReminder({
+    required BuildContext context,
+    required DebtModel debt,
+    required Map<String, String> memberNames,
+  }) async {
+    // Guest members cannot receive account notifications.
+    if (debt.fromUserId.startsWith('guest_')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Guest members cannot receive reminders.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final currentUser =
+        FirebaseAuth.instance.currentUser;
+
+    if (currentUser == null) {
+      return;
+    }
+
+    // Only the person who is owed money should
+    // be able to send the reminder.
+    if (currentUser.uid != debt.toUserId) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Only the person who is owed money '
+                'can send this reminder.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final debtorName =
+        memberNames[debt.fromUserId] ??
+            _shortId(debt.fromUserId);
+
+    try {
+      final notificationService =
+      InAppNotificationService();
+
+      await notificationService.createNotification(
+        userId: debt.fromUserId,
+        type: 'balance_reminder',
+        title: 'Payment reminder',
+        message:
+        'You still owe '
+            '${formatCurrency(debt.amount, group.currencyCode)} '
+            'in ${group.name}.',
+        groupId: group.id,
+      );
+
+      if (!context.mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Reminder sent to $debtorName.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!context.mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Unable to send reminder: $error',
           ),
         ),
       );
@@ -414,17 +498,25 @@ class BalancesScreen extends StatelessWidget {
                               (debt) => _DebtCard(
                                 debt: debt,
                                 memberNames: memberNames,
-                                currencyCode:
-                                group.currencyCode,
+                                currencyCode: group.currencyCode,
+
                                 onSettle: () {
-                              _settleDebt(
-                                context: context,
-                                debt: debt,
-                                settlementService:
-                                settlementService,
-                              );
-                            },
-                          ),
+                                  _settleDebt(
+                                    context: context,
+                                    debt: debt,
+                                    settlementService:
+                                    settlementService,
+                                  );
+                                },
+
+                                onRemind: () {
+                                  _sendReminder(
+                                    context: context,
+                                    debt: debt,
+                                    memberNames: memberNames,
+                                  );
+                                },
+                              ),
                         ),
 
                       const SizedBox(height: 28),
@@ -518,12 +610,14 @@ class _DebtCard extends StatelessWidget {
   final DebtModel debt;
   final Map<String, String> memberNames;
   final VoidCallback onSettle;
+  final VoidCallback onRemind;
   final String currencyCode;
 
   const _DebtCard({
     required this.debt,
     required this.memberNames,
     required this.onSettle,
+    required this.onRemind,
     required this.currencyCode,
   });
 
@@ -553,9 +647,39 @@ class _DebtCard extends StatelessWidget {
             currencyCode,
           ),
         ),
-        trailing: FilledButton.tonal(
-          onPressed: onSettle,
-          child: const Text('Settle Up'),
+        trailing: PopupMenuButton<String>(
+          tooltip: 'Balance actions',
+          onSelected: (value) {
+            if (value == 'remind') {
+              onRemind();
+            } else if (value == 'settle') {
+              onSettle();
+            }
+          },
+          itemBuilder: (context) => const [
+            PopupMenuItem(
+              value: 'remind',
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.notifications_active_outlined,
+                  ),
+                  SizedBox(width: 12),
+                  Text('Send Reminder'),
+                ],
+              ),
+            ),
+            PopupMenuItem(
+              value: 'settle',
+              child: Row(
+                children: [
+                  Icon(Icons.payments_outlined),
+                  SizedBox(width: 12),
+                  Text('Settle Up'),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
