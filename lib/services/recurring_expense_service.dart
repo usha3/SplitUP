@@ -2,17 +2,29 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../models/recurring_expense_model.dart';
+import 'package:flutter/foundation.dart';
+
+import '../services/in_app_notification_service.dart';
 
 class RecurringExpenseService {
   final FirebaseFirestore _firestore;
   final FirebaseAuth _auth;
 
+  final InAppNotificationService
+  _inAppNotificationService;
+
   RecurringExpenseService({
     FirebaseFirestore? firestore,
     FirebaseAuth? auth,
+    InAppNotificationService?
+    inAppNotificationService,
   })  : _firestore =
       firestore ?? FirebaseFirestore.instance,
-        _auth = auth ?? FirebaseAuth.instance;
+        _auth =
+            auth ?? FirebaseAuth.instance,
+        _inAppNotificationService =
+            inAppNotificationService ??
+                InAppNotificationService();
 
   CollectionReference<Map<String, dynamic>>
   _recurringCollection(String groupId) {
@@ -306,7 +318,65 @@ class RecurringExpenseService {
       day,
     );
   }
-  Future<int> generateDueExpenses(String groupId) async {
+
+  Future<void> _createRecurringNotifications({
+    required String groupId,
+    required String expenseId,
+    required String title,
+    required double amount,
+    required List<String> participants,
+    required Map<String, double> shares,
+  }) async {
+    try {
+      final groupDocument = await _firestore
+          .collection('groups')
+          .doc(groupId)
+          .get();
+
+      final groupData =
+          groupDocument.data() ?? {};
+
+      final groupName =
+      groupData['name']?.toString().trim().isNotEmpty == true
+          ? groupData['name'].toString().trim()
+          : 'your group';
+
+      for (final participantId in participants) {
+        // Guests do not have an account/device notification inbox.
+        if (participantId.startsWith('guest_')) {
+          continue;
+        }
+
+        final participantShare =
+            shares[participantId] ??
+                (participants.isNotEmpty
+                    ? amount / participants.length
+                    : 0);
+
+        await _inAppNotificationService
+            .createNotification(
+          userId: participantId,
+          type: 'recurring_expense',
+          title: 'Recurring expense added',
+          message:
+          '$title was automatically added in $groupName. '
+              'Your share is '
+              '\$${participantShare.toStringAsFixed(2)}.',
+          groupId: groupId,
+          expenseId: expenseId,
+        );
+      }
+    } catch (error) {
+      debugPrint(
+        'Unable to create recurring expense notifications: '
+            '$error',
+      );
+    }
+  }
+
+  Future<int> generateDueExpenses(
+      String groupId,
+      ) async {
     final user = _auth.currentUser;
 
     if (user == null) {
@@ -317,13 +387,16 @@ class RecurringExpenseService {
 
     final now = DateTime.now();
 
-    final recurringSnapshot = await _recurringCollection(
-      groupId,
+    final recurringSnapshot =
+    await _recurringCollection(groupId)
+        .where(
+      'isActive',
+      isEqualTo: true,
     )
-        .where('isActive', isEqualTo: true)
         .where(
       'nextDueDate',
-      isLessThanOrEqualTo: Timestamp.fromDate(now),
+      isLessThanOrEqualTo:
+      Timestamp.fromDate(now),
     )
         .get();
 
@@ -331,15 +404,17 @@ class RecurringExpenseService {
 
     for (final recurringDocument
     in recurringSnapshot.docs) {
-      final generated = await _firestore.runTransaction<bool>(
+      final generatedInfo =
+      await _firestore.runTransaction<
+          _GeneratedRecurringExpense?>(
             (transaction) async {
-          // Read the latest version inside the transaction.
-          final freshDocument = await transaction.get(
+          final freshDocument =
+          await transaction.get(
             recurringDocument.reference,
           );
 
           if (!freshDocument.exists) {
-            return false;
+            return null;
           }
 
           final recurring =
@@ -347,88 +422,189 @@ class RecurringExpenseService {
             freshDocument,
           );
 
-          final transactionNow = DateTime.now();
+          final transactionNow =
+          DateTime.now();
 
-          // Another device may already have processed it.
+          // Another device may already have
+          // processed this recurring expense.
           if (!recurring.isActive ||
               recurring.nextDueDate.isAfter(
                 transactionNow,
               )) {
-            return false;
+            return null;
           }
 
-          final dueDate = recurring.nextDueDate;
+          final dueDate =
+              recurring.nextDueDate;
 
-          // One deterministic expense ID per recurring occurrence.
+          // Recurring expenses currently use
+          // equal splitting.
+          final shares =
+          <String, double>{};
+
+          if (recurring
+              .participants.isNotEmpty) {
+            final share =
+                recurring.amount /
+                    recurring
+                        .participants.length;
+
+            for (final participantId
+            in recurring.participants) {
+              shares[participantId] =
+                  share;
+            }
+          }
+
+          // Deterministic ID prevents duplicate
+          // expenses for the same occurrence.
           final occurrenceId =
-              '${recurring.id}_${dueDate.millisecondsSinceEpoch}';
+              '${recurring.id}_'
+              '${dueDate.millisecondsSinceEpoch}';
 
-          final expenseReference = _firestore
+          final expenseReference =
+          _firestore
               .collection('groups')
               .doc(groupId)
               .collection('expenses')
               .doc(occurrenceId);
 
-          final existingExpense = await transaction.get(
+          final existingExpense =
+          await transaction.get(
             expenseReference,
           );
 
-          final nextDueDate = calculateNextDueDate(
+          final nextDueDate =
+          calculateNextDueDate(
             currentDueDate: dueDate,
-            frequency: recurring.frequency,
+            frequency:
+            recurring.frequency,
           );
 
           if (!existingExpense.exists) {
             transaction.set(
               expenseReference,
               {
-                'title': recurring.title,
-                'amount': recurring.amount,
-                'category': recurring.category,
-                'paidBy': recurring.paidBy,
-                'groupId': groupId,
-                'participants': recurring.participants,
+                'title':
+                recurring.title,
+                'amount':
+                recurring.amount,
+                'category':
+                recurring.category,
+                'paidBy':
+                recurring.paidBy,
+                'groupId':
+                groupId,
+                'participants':
+                recurring.participants,
 
-                // Use the scheduled due date so analytics and
-                // monthly budget calculations place it correctly.
-                'createdAt': Timestamp.fromDate(dueDate),
+                'splitType': 'equal',
+                'items': const [],
+                'shares': shares,
 
-                'generatedFromRecurring': true,
-                'recurringExpenseId': recurring.id,
-                'recurringOccurrenceId': occurrenceId,
+                // Use the scheduled due date
+                // for analytics/budget placement.
+                'createdAt':
+                Timestamp.fromDate(
+                  dueDate,
+                ),
+
+                'generatedFromRecurring':
+                true,
+                'recurringExpenseId':
+                recurring.id,
+                'recurringOccurrenceId':
+                occurrenceId,
                 'recurringDueDate':
-                Timestamp.fromDate(dueDate),
+                Timestamp.fromDate(
+                  dueDate,
+                ),
                 'generatedAt':
-                FieldValue.serverTimestamp(),
+                FieldValue
+                    .serverTimestamp(),
               },
             );
           }
 
-          // Advance the recurring record even if the matching
-          // expense already exists from an earlier attempt.
+          // Always advance the recurring record,
+          // even if this occurrence already exists.
           transaction.update(
             freshDocument.reference,
             {
               'lastGeneratedAt':
-              FieldValue.serverTimestamp(),
+              FieldValue
+                  .serverTimestamp(),
               'lastGeneratedDueDate':
-              Timestamp.fromDate(dueDate),
+              Timestamp.fromDate(
+                dueDate,
+              ),
               'nextDueDate':
-              Timestamp.fromDate(nextDueDate),
+              Timestamp.fromDate(
+                nextDueDate,
+              ),
               'updatedAt':
-              FieldValue.serverTimestamp(),
+              FieldValue
+                  .serverTimestamp(),
             },
           );
 
-          return !existingExpense.exists;
+          // If another attempt already generated
+          // this occurrence, don't notify again.
+          if (existingExpense.exists) {
+            return null;
+          }
+
+          return _GeneratedRecurringExpense(
+            expenseId: occurrenceId,
+            title: recurring.title,
+            amount: recurring.amount,
+            participants:
+            List<String>.from(
+              recurring.participants,
+            ),
+            shares:
+            Map<String, double>.from(
+              shares,
+            ),
+          );
         },
       );
 
-      if (generated) {
+      if (generatedInfo != null) {
         generatedCount++;
+
+        await _createRecurringNotifications(
+          groupId: groupId,
+          expenseId:
+          generatedInfo.expenseId,
+          title:
+          generatedInfo.title,
+          amount:
+          generatedInfo.amount,
+          participants:
+          generatedInfo.participants,
+          shares:
+          generatedInfo.shares,
+        );
       }
     }
 
     return generatedCount;
   }
 }
+
+  class _GeneratedRecurringExpense {
+  final String expenseId;
+  final String title;
+  final double amount;
+  final List<String> participants;
+  final Map<String, double> shares;
+
+  const _GeneratedRecurringExpense({
+  required this.expenseId,
+  required this.title,
+  required this.amount,
+  required this.participants,
+  required this.shares,
+  });
+  }
