@@ -29,6 +29,21 @@ class _ManageMembersScreenState extends State<ManageMembersScreen> {
   final UserService _userService = UserService();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  static const Map<String, String>
+  _expensePreferenceOptions = {
+    'meat': 'Meat',
+    'milk': 'Milk',
+    'seafood': 'Seafood',
+    'eggs': 'Eggs',
+    'dairy': 'Dairy',
+    'alcohol': 'Alcohol',
+    'gluten': 'Gluten',
+    'coffee': 'Coffee',
+    'baby_products': 'Baby products',
+    'pet_supplies': 'Pet supplies',
+    'personal_care': 'Personal care',
+  };
+
   Future<Map<String, _MemberViewData>> _loadMembers(
       GroupModel group,
       ) async {
@@ -438,6 +453,230 @@ class _ManageMembersScreenState extends State<ManageMembersScreen> {
     guestEmailController.dispose();
   }
 
+  Future<void> _showExpensePreferences({
+    required GroupModel group,
+    required _MemberViewData member,
+  }) async {
+    final preferenceReference = _firestore
+        .collection('groups')
+        .doc(group.id)
+        .collection('memberPreferences')
+        .doc(member.id);
+
+    try {
+      final document =
+      await preferenceReference.get();
+
+      final data = document.data() ?? {};
+
+      final excludedTags = Set<String>.from(
+        data['excludedTags']
+        as List<dynamic>? ??
+            const [],
+      );
+
+      if (!mounted) return;
+
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) {
+          var selectedTags =
+          Set<String>.from(
+            excludedTags,
+          );
+
+          var isSaving = false;
+
+          return StatefulBuilder(
+            builder: (
+                context,
+                setDialogState,
+                ) {
+              Future<void> save() async {
+                setDialogState(() {
+                  isSaving = true;
+                });
+
+                try {
+                  await preferenceReference.set(
+                    {
+                      'memberId': member.id,
+                      'excludedTags':
+                      selectedTags.toList()
+                        ..sort(),
+                      'updatedAt':
+                      FieldValue
+                          .serverTimestamp(),
+                    },
+                    SetOptions(
+                      merge: true,
+                    ),
+                  );
+
+                  if (!dialogContext.mounted) {
+                    return;
+                  }
+
+                  Navigator.of(
+                    dialogContext,
+                  ).pop();
+
+                  if (!mounted) return;
+
+                  ScaffoldMessenger.of(
+                    this.context,
+                  ).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Expense preferences saved '
+                            'for ${member.displayName}.',
+                      ),
+                    ),
+                  );
+                } catch (error) {
+                  if (!dialogContext.mounted) {
+                    return;
+                  }
+
+                  setDialogState(() {
+                    isSaving = false;
+                  });
+
+                  ScaffoldMessenger.of(
+                    dialogContext,
+                  ).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Unable to save preferences: '
+                            '$error',
+                      ),
+                    ),
+                  );
+                }
+              }
+
+              return AlertDialog(
+                title: Text(
+                  '${member.displayName} preferences',
+                ),
+                content: SizedBox(
+                  width: 420,
+                  child:
+                  SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize:
+                      MainAxisSize.min,
+                      crossAxisAlignment:
+                      CrossAxisAlignment
+                          .start,
+                      children: [
+                        const Text(
+                          'Select items this member '
+                              'should normally be excluded '
+                              'from when splitting scanned '
+                              'receipts.',
+                        ),
+
+                        const SizedBox(
+                          height: 16,
+                        ),
+
+                        ..._expensePreferenceOptions
+                            .entries
+                            .map(
+                              (entry) {
+                            return CheckboxListTile(
+                              contentPadding:
+                              EdgeInsets.zero,
+                              value:
+                              selectedTags
+                                  .contains(
+                                entry.key,
+                              ),
+                              title: Text(
+                                entry.value,
+                              ),
+                              controlAffinity:
+                              ListTileControlAffinity
+                                  .leading,
+                              onChanged: isSaving
+                                  ? null
+                                  : (selected) {
+                                setDialogState(
+                                      () {
+                                    if (selected ==
+                                        true) {
+                                      selectedTags
+                                          .add(
+                                        entry.key,
+                                      );
+                                    } else {
+                                      selectedTags
+                                          .remove(
+                                        entry.key,
+                                      );
+                                    }
+                                  },
+                                );
+                              },
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: isSaving
+                        ? null
+                        : () {
+                      Navigator.of(
+                        dialogContext,
+                      ).pop();
+                    },
+                    child:
+                    const Text('Cancel'),
+                  ),
+                  FilledButton.icon(
+                    onPressed:
+                    isSaving ? null : save,
+                    icon: isSaving
+                        ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child:
+                      CircularProgressIndicator(
+                        strokeWidth: 2,
+                      ),
+                    )
+                        : const Icon(
+                      Icons.save_outlined,
+                    ),
+                    label:
+                    const Text('Save'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    } catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context)
+          .showSnackBar(
+        SnackBar(
+          content: Text(
+            'Unable to load preferences: '
+                '$error',
+          ),
+        ),
+      );
+    }
+  }
+
   Future<void> _confirmRemoveMember({
     required GroupModel group,
     required _MemberViewData member,
@@ -655,14 +894,16 @@ class _ManageMembersScreenState extends State<ManageMembersScreen> {
                         ),
                       ),
 
-                      trailing: isCreator
-                          ? const Icon(
-                        Icons
-                            .admin_panel_settings_outlined,
-                      )
-                          : canManageMembers
+                      trailing: canManageMembers
                           ? PopupMenuButton<String>(
                         onSelected: (value) {
+                          if (value == 'preferences') {
+                            _showExpensePreferences(
+                              group: group,
+                              member: member,
+                            );
+                          }
+
                           if (value == 'remove') {
                             _confirmRemoveMember(
                               group: group,
@@ -670,21 +911,43 @@ class _ManageMembersScreenState extends State<ManageMembersScreen> {
                             );
                           }
                         },
-                        itemBuilder: (_) => const [
-                          PopupMenuItem(
-                            value: 'remove',
+                        itemBuilder: (_) => [
+                          const PopupMenuItem(
+                            value: 'preferences',
                             child: Row(
                               children: [
                                 Icon(
                                   Icons
-                                      .person_remove_outlined,
+                                      .playlist_remove_outlined,
                                 ),
                                 SizedBox(width: 10),
-                                Text('Remove member'),
+                                Text(
+                                  'Expense preferences',
+                                ),
                               ],
                             ),
                           ),
+
+                          if (!isCreator)
+                            const PopupMenuItem(
+                              value: 'remove',
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons
+                                        .person_remove_outlined,
+                                  ),
+                                  SizedBox(width: 10),
+                                  Text('Remove member'),
+                                ],
+                              ),
+                            ),
                         ],
+                      )
+                          : isCreator
+                          ? const Icon(
+                        Icons
+                            .admin_panel_settings_outlined,
                       )
                           : null,
                     ),

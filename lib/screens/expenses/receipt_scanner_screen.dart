@@ -25,7 +25,65 @@ class _ReceiptScannerScreenState
 
   bool _isScanning = false;
   String? _errorMessage;
+  ScannedReceipt _sanitizeReceiptForExpense(ScannedReceipt receipt)
+  {
+    final cleanedItems = receipt.items.where((item) {
+      final name = item.name
+          .toLowerCase()
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
 
+      const summaryPhrases = <String>[
+        'year to date savings',
+        'ytd savings',
+        'total savings',
+        'savings this order',
+        'savings this purchase',
+        'you saved',
+        'you save',
+        'your savings',
+        'today\'s savings',
+        'todays savings',
+        'amount saved',
+        'opening balance',
+        'closing balance',
+        'earned this visit',
+        'rewards balance',
+        'points balance',
+        'original price',
+        'return value',
+        'net sale',
+        'refund total',
+        'return total',
+        'mywalgreens savings',
+        'mywalgreens rewards',
+        'walgreens cash',
+      ];
+
+      if (summaryPhrases.any(name.contains)) {
+        return false;
+      }
+
+      // "Spend" is normally a rewards/accounting line, not merchandise.
+      if (RegExp(r'^spend\b').hasMatch(name)) {
+        return false;
+      }
+
+      return true;
+    }).toList();
+
+    return ScannedReceipt(
+      rawText: receipt.rawText,
+      merchantName: receipt.merchantName,
+      subtotal: receipt.subtotal,
+      tax: receipt.tax,
+      tip: receipt.tip,
+      fees: receipt.fees,
+      total: receipt.total,
+      purchaseDate: receipt.purchaseDate,
+      items: cleanedItems,
+    );
+  }
   Future<void> _pickAndScan(ImageSource source) async {
     setState(() {
       _isScanning = true;
@@ -45,7 +103,12 @@ class _ReceiptScannerScreenState
       }
 
       final file = File(image.path);
-      final receipt = await _scannerService.scanReceipt(file);
+
+      final scannedReceipt =
+      await _scannerService.scanReceipt(file);
+
+      final receipt =
+      _sanitizeReceiptForExpense(scannedReceipt);
 
       if (!mounted) return;
 
@@ -68,6 +131,33 @@ class _ReceiptScannerScreenState
     }
   }
 
+  bool _shouldShowDetectedItem(ScannedReceiptItem item) {
+    final name = item.name
+        .toLowerCase()
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+
+    // Hide receipt-level discounts, coupons, rewards and savings.
+    // Do NOT hide an item merely because its amount is negative:
+    // negative merchandise may represent a return/refund.
+    const adjustmentWords = <String>[
+      'coupon',
+      'cpn',
+      'discount',
+      'savings',
+      'reward',
+      'rewards',
+      'redcard',
+      'circle bonus',
+      'manufacturer coupon',
+      'store coupon',
+      'promo',
+      'promotion',
+      'loyalty',
+    ];
+
+    return !adjustmentWords.any(name.contains);
+  }
   void _useReceipt() {
     final receipt = _receipt;
 
@@ -75,9 +165,22 @@ class _ReceiptScannerScreenState
       return;
     }
 
-    Navigator.of(context).pop(receipt);
-  }
+    final sanitizedReceipt =
+    _sanitizeReceiptForExpense(receipt);
 
+    debugPrint(
+      'RETURNING SANITIZED ITEMS: '
+          '${sanitizedReceipt.items.length}',
+    );
+
+    for (final item in sanitizedReceipt.items) {
+      debugPrint(
+        'RETURN ITEM: ${item.name} | ${item.amount}',
+      );
+    }
+
+    Navigator.of(context).pop(sanitizedReceipt);
+  }
   @override
   void dispose() {
     _scannerService.dispose();
@@ -228,6 +331,72 @@ class _ReceiptScannerScreenState
                         _receipt!.purchaseDate,
                       ),
                     ),
+                    const Divider(),
+
+                    const SizedBox(height: 12),
+
+                    Text(
+                      'Detected items',
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleMedium
+                          ?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    Builder(
+                      builder: (context) {
+                        final visibleItems = _receipt!.items
+                            .where(_shouldShowDetectedItem)
+                            .toList();
+
+                        if (visibleItems.isEmpty) {
+                          return const Text(
+                            'No individual items detected. '
+                                'You can still use the receipt total.',
+                          );
+                        }
+
+                        return Column(
+                          children: visibleItems
+                              .map(
+                                (item) => Card(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              child: ListTile(
+                                dense: true,
+                                title: Text(item.name),
+                                subtitle: item.amount < 0
+                                    ? const Text(
+                                  'Returned item',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                )
+                                    : item.detectedTag == null
+                                    ? const Text(
+                                  'No exclusion category detected',
+                                )
+                                    : Text(
+                                  'Detected: ${_formatTag(item.detectedTag!)}',
+                                ),
+                                trailing: Text(
+                                  item.amount < 0
+                                      ? '-\$${item.amount.abs().toStringAsFixed(2)}'
+                                      : '\$${item.amount.toStringAsFixed(2)}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          )
+                              .toList(),
+                        );
+                      },
+                    ),
                     const SizedBox(height: 16),
                     FilledButton.icon(
                       onPressed: _useReceipt,
@@ -252,6 +421,56 @@ class _ReceiptScannerScreenState
     }
 
     return '${date.month}/${date.day}/${date.year}';
+  }
+
+  static String _formatTag(
+      String tag,
+      ) {
+    switch (tag) {
+      case 'meat':
+        return 'Meat';
+
+      case 'milk':
+        return 'Milk';
+
+      case 'seafood':
+        return 'Seafood';
+
+      case 'eggs':
+        return 'Eggs';
+
+      case 'dairy':
+        return 'Dairy';
+
+      case 'alcohol':
+        return 'Alcohol';
+
+      case 'gluten':
+        return 'Gluten';
+
+      case 'coffee':
+        return 'Coffee';
+
+      case 'baby_products':
+        return 'Baby products';
+
+      case 'pet_supplies':
+        return 'Pet supplies';
+
+      case 'personal_care':
+        return 'Personal care';
+
+      case 'health':
+        return 'Health / Medicine';
+
+      case 'household':
+        return 'Household';
+
+      case 'grocery':
+        return 'Grocery';
+      default:
+        return tag;
+    }
   }
 }
 

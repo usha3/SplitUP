@@ -7,12 +7,22 @@ class UserModel {
   final String photoUrl;
   final DateTime? createdAt;
 
+  /// Payment handles used when other SplitUp members
+  /// settle balances with this user.
+  ///
+  /// Supported keys:
+  /// - venmo
+  /// - paypal
+  /// - cashApp
+  final Map<String, String> paymentMethods;
+
   const UserModel({
     required this.uid,
     required this.name,
     required this.email,
     this.photoUrl = '',
     this.createdAt,
+    this.paymentMethods = const {},
   });
 
   factory UserModel.fromFirestore(
@@ -20,12 +30,31 @@ class UserModel {
       ) {
     final data = document.data() ?? {};
 
+    final rawPaymentMethods =
+    data['paymentMethods'];
+
+    final paymentMethods = <String, String>{};
+
+    if (rawPaymentMethods is Map) {
+      rawPaymentMethods.forEach((key, value) {
+        final normalizedKey = key.toString();
+        final normalizedValue =
+            value?.toString().trim() ?? '';
+
+        if (normalizedValue.isNotEmpty) {
+          paymentMethods[normalizedKey] =
+              normalizedValue;
+        }
+      });
+    }
+
     return UserModel(
       uid: data['uid'] as String? ?? document.id,
       name: data['name'] as String? ?? '',
       email: data['email'] as String? ?? '',
       photoUrl: data['photoUrl'] as String? ?? '',
       createdAt: _toDateTime(data['createdAt']),
+      paymentMethods: paymentMethods,
     );
   }
 
@@ -35,7 +64,9 @@ class UserModel {
       'name': name,
       'email': email,
       'photoUrl': photoUrl,
-      'createdAt': createdAt ?? FieldValue.serverTimestamp(),
+      'createdAt':
+      createdAt ?? FieldValue.serverTimestamp(),
+      'paymentMethods': paymentMethods,
     };
   }
 
@@ -45,6 +76,7 @@ class UserModel {
     String? email,
     String? photoUrl,
     DateTime? createdAt,
+    Map<String, String>? paymentMethods,
   }) {
     return UserModel(
       uid: uid ?? this.uid,
@@ -52,6 +84,8 @@ class UserModel {
       email: email ?? this.email,
       photoUrl: photoUrl ?? this.photoUrl,
       createdAt: createdAt ?? this.createdAt,
+      paymentMethods:
+      paymentMethods ?? this.paymentMethods,
     );
   }
 

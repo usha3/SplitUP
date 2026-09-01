@@ -52,14 +52,17 @@ class ExpenseModel {
   final String? recurringExpenseId;
   final String? receiptUrl;
 
-  // NEW
   final String splitType;
-
-  // NEW
   final List<ExpenseItem> items;
-
-  // NEW
   final Map<String, double> shares;
+
+  final double receiptAdjustment;
+  final String? receiptAdjustmentLabel;
+
+  final double receiptTax;
+  final double receiptTipAndFees;
+  final double receiptDiscounts;
+  final double receiptReconciliation;
 
   const ExpenseModel({
     required this.id,
@@ -73,11 +76,15 @@ class ExpenseModel {
     this.generatedFromRecurring = false,
     this.recurringExpenseId,
     this.receiptUrl,
-
-    // NEW
     this.splitType = 'equal',
     this.items = const [],
     this.shares = const {},
+    this.receiptAdjustment = 0,
+    this.receiptAdjustmentLabel,
+    this.receiptTax = 0,
+    this.receiptTipAndFees = 0,
+    this.receiptDiscounts = 0,
+    this.receiptReconciliation = 0,
   });
 
   factory ExpenseModel.fromFirestore(
@@ -124,12 +131,22 @@ class ExpenseModel {
       recurringExpenseId:
       data['recurringExpenseId']?.toString(),
       receiptUrl: data['receiptUrl']?.toString(),
-
-      // NEW
       splitType:
       data['splitType']?.toString() ?? 'equal',
       items: items,
       shares: shares,
+      receiptAdjustment:
+      (data['receiptAdjustment'] as num?)
+        ?.toDouble() ??
+        0,
+
+      receiptAdjustmentLabel:
+       data['receiptAdjustmentLabel']
+        ?.toString(),
+      receiptTax: _toDouble(data['receiptTax']),
+      receiptTipAndFees: _toDouble(data['receiptTipAndFees']),
+      receiptDiscounts: _toDouble(data['receiptDiscounts']),
+      receiptReconciliation: _toDouble(data['receiptReconciliation']),
     );
   }
 
@@ -154,6 +171,13 @@ class ExpenseModel {
       'items':
       items.map((item) => item.toMap()).toList(),
       'shares': shares,
+      'receiptAdjustment': receiptAdjustment,
+      'receiptAdjustmentLabel':
+      receiptAdjustmentLabel,
+      'receiptTax': receiptTax,
+      'receiptTipAndFees': receiptTipAndFees,
+      'receiptDiscounts': receiptDiscounts,
+      'receiptReconciliation': receiptReconciliation,
     };
   }
 
@@ -192,6 +216,12 @@ class ExpenseModel {
     String? splitType,
     List<ExpenseItem>? items,
     Map<String, double>? shares,
+    double? receiptAdjustment,
+    String? receiptAdjustmentLabel,
+    double? receiptTax,
+    double? receiptTipAndFees,
+    double? receiptDiscounts,
+    double? receiptReconciliation,
   }) {
     return ExpenseModel(
       id: id ?? this.id,

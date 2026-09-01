@@ -52,14 +52,11 @@ class ExpenseService {
     required List<String> participants,
     String? receiptUrl,
 
-    // NEW
     String splitType = 'equal',
-
-    // NEW
     List<ExpenseItem> items = const [],
-
-    // NEW
     Map<String, double> shares = const {},
+    double receiptAdjustment = 0,
+    String? receiptAdjustmentLabel,
   }) async {
     final user = _auth.currentUser;
 
@@ -101,15 +98,22 @@ class ExpenseService {
       }
 
       for (final item in items) {
-        if (item.name.trim().isEmpty) {
+        if (item.name
+            .trim()
+            .isEmpty) {
           throw ArgumentError(
             'Every item needs a name.',
           );
         }
 
-        if (item.amount <= 0) {
+        if (items.any(
+              (item) =>
+          item.amount == 0 ||
+              item.amount.isNaN ||
+              item.amount.isInfinite,
+        )) {
           throw ArgumentError(
-            'Every item must have a valid amount.',
+            'Every item must have a valid non-zero amount.',
           );
         }
 
@@ -122,12 +126,18 @@ class ExpenseService {
 
       final itemTotal = items.fold<double>(
         0,
-            (total, item) => total + item.amount,
+            (currentTotal, item) =>
+        currentTotal + item.amount,
       );
 
-      if ((itemTotal - amount).abs() > 0.01) {
+      final calculatedExpenseTotal =
+          itemTotal + receiptAdjustment;
+
+      if ((calculatedExpenseTotal - amount).abs() >
+          0.01) {
         throw ArgumentError(
-          'Item total does not match expense total.',
+          'Items plus receipt adjustment '
+              'do not match expense total.',
         );
       }
     }
@@ -150,6 +160,9 @@ class ExpenseService {
       splitType: splitType,
       items: items,
       shares: shares,
+      receiptAdjustment: receiptAdjustment,
+      receiptAdjustmentLabel:
+      receiptAdjustmentLabel,
     );
 
     await document.set(
@@ -179,6 +192,8 @@ class ExpenseService {
     required String category,
     required List<String> participants,
     String? receiptUrl,
+    double receiptAdjustment = 0,
+    String? receiptAdjustmentLabel,
 
     String splitType = 'equal',
     List<ExpenseItem> items = const [],
@@ -222,7 +237,6 @@ class ExpenseService {
       'participants': participants,
       'receiptUrl': receiptUrl,
 
-      // NEW
       'splitType': splitType,
       'items':
       items.map((item) => item.toMap()).toList(),
@@ -230,6 +244,11 @@ class ExpenseService {
 
       'updatedAt':
       FieldValue.serverTimestamp(),
+      'receiptAdjustment':
+      receiptAdjustment,
+
+      'receiptAdjustmentLabel':
+      receiptAdjustmentLabel,
     });
   }
 

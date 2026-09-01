@@ -41,6 +41,7 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
 
   final List<_ExpenseItemDraft> _expenseItems = [];
   late Future<Map<String, _ParticipantData>> _participantsFuture;
+  late double _receiptAdjustment;
 
   bool _isLoading = false;
 
@@ -109,6 +110,25 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
     return total;
   }
 
+  void _updateReceiptAdjustment() {
+    if (_splitMode != _SplitMode.itemized) {
+      _receiptAdjustment = 0;
+      return;
+    }
+
+    final expenseTotal =
+        double.tryParse(
+          _amountController.text.trim(),
+        ) ??
+            0;
+
+    final itemsTotal =
+    _calculateItemsTotal();
+
+    _receiptAdjustment =
+        expenseTotal - itemsTotal;
+  }
+
   Map<String, double> _calculateEqualShares(
       double amount,
       ) {
@@ -152,7 +172,23 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
                 share;
       }
     }
+    if (_receiptAdjustment.abs() > 0.01) {
+      final adjustmentParticipants =
+      shares.keys.toSet();
 
+      if (adjustmentParticipants.isNotEmpty) {
+        final adjustmentPerPerson =
+            _receiptAdjustment /
+                adjustmentParticipants.length;
+
+        for (final memberId
+        in adjustmentParticipants) {
+          shares[memberId] =
+              (shares[memberId] ?? 0) +
+                  adjustmentPerPerson;
+        }
+      }
+    }
     return shares;
   }
 
@@ -216,24 +252,7 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
       }
     }
 
-    final itemTotal =
-    _calculateItemsTotal();
-
-    if ((itemTotal - expenseTotal).abs() >
-        0.01) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Items total '
-                '\$${itemTotal.toStringAsFixed(2)} '
-                'must match expense total '
-                '\$${expenseTotal.toStringAsFixed(2)}.',
-          ),
-        ),
-      );
-
-      return false;
-    }
+    _updateReceiptAdjustment();
 
     return true;
   }
@@ -249,6 +268,9 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
     _amountController = TextEditingController(
       text: widget.expense.amount.toStringAsFixed(2),
     );
+
+    _receiptAdjustment =
+        widget.expense.receiptAdjustment;
 
     _category = _categories.contains(widget.expense.category)
         ? widget.expense.category
@@ -500,6 +522,18 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
         shares: shares,
         receiptUrl:
         widget.expense.receiptUrl,
+        receiptAdjustment:
+        _splitMode == _SplitMode.itemized
+            ? _receiptAdjustment
+            : 0,
+
+        receiptAdjustmentLabel:
+        _splitMode != _SplitMode.itemized ||
+            _receiptAdjustment.abs() <= 0.01
+            ? null
+            : _receiptAdjustment > 0
+            ? 'Tax / fees / adjustment'
+            : 'Discount / adjustment',
       );
 
       if (!mounted) return;
@@ -581,7 +615,9 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
                     decimal: true,
                   ),
                   onChanged: (_) {
-                    setState(() {});
+                    setState(() {
+                      _updateReceiptAdjustment();
+                    });
                   },
                   decoration: const InputDecoration(
                     labelText: 'Amount',
@@ -960,8 +996,11 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
                   .numberWithOptions(
                 decimal: true,
               ),
-              onChanged: (_) =>
-                  setState(() {}),
+              onChanged: (_) {
+                setState(() {
+                  _updateReceiptAdjustment();
+                });
+              },
               decoration:
               const InputDecoration(
                 labelText: 'Item amount',
@@ -1087,7 +1126,26 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
                   'Items total: '
                       '\$${itemTotal.toStringAsFixed(2)}',
                 ),
+                if (_receiptAdjustment.abs() > 0.01) ...[
+                  const SizedBox(height: 4),
 
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _receiptAdjustment > 0
+                              ? 'Tax / fees / adjustment'
+                              : 'Discount / adjustment',
+                        ),
+                      ),
+                      Text(
+                        _receiptAdjustment > 0
+                            ? '+\$${_receiptAdjustment.toStringAsFixed(2)}'
+                            : '-\$${_receiptAdjustment.abs().toStringAsFixed(2)}',
+                      ),
+                    ],
+                  ),
+                ],
                 Text(
                   'Expense total: '
                       '\$${expenseTotal.toStringAsFixed(2)}',

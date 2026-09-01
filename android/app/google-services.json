@@ -48,6 +48,42 @@
           ]
         }
       }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:727278031097:android:ab48e3a356087853359228",
+        "android_client_info": {
+          "package_name": "com.usha.splitup"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "727278031097-6ifoi74oc7ec2ph2ns0bq4mnrb1a4nf5.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBvGoQL4P1e8e3FghFIyQqBpBKo8rQ6Wl0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "727278031097-6ifoi74oc7ec2ph2ns0bq4mnrb1a4nf5.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "727278031097-b2o4hlajot011lbctjdenese7g40bp2f.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.splitup"
+              }
+            }
+          ]
+        }
+      }
     }
   ],
   "configuration_version": "1"

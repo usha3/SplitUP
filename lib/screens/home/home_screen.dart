@@ -17,6 +17,9 @@ import '../../services/notification_service.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import '../../services/in_app_notification_service.dart';
 import '../notifications/notifications_screen.dart';
+import '../../services/account_service.dart';
+import '../auth/login_screen.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -45,8 +48,19 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  Future<void> _logout() async {
+  Future<void> _logout(BuildContext context) async {
+    final navigator = Navigator.of(context);
+
     await FirebaseAuth.instance.signOut();
+
+    if (navigator.mounted) {
+      navigator.pushAndRemoveUntil(
+        MaterialPageRoute(
+          builder: (_) => const LoginScreen(),
+        ),
+            (route) => false,
+      );
+    }
   }
 
   Future<void> _openCreateGroup() async {
@@ -60,12 +74,6 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _initializeNotifications() async {
     await _notificationService.initialize(
       onForegroundMessage: (message) {
-        debugPrint(
-          'Foreground notification received: ${message.messageId}',
-        );
-
-        // NotificationService now displays the Android
-        // heads-up notification, so no SnackBar is needed here.
       },
       onNotificationOpened: (message) {
         if (!mounted) return;
@@ -73,23 +81,14 @@ class _HomeScreenState extends State<HomeScreen> {
         _handleNotificationNavigation(message);
       },
     );
-
-    final token = await _notificationService.getToken();
-    debugPrint('FCM TOKEN: $token');
+    await _notificationService.getToken();
   }
 
   void _handleNotificationNavigation(
       RemoteMessage message,
       ) {
-    final type = message.data['type'];
-    final groupId = message.data['groupId'];
-
-    debugPrint(
-      'Notification opened: type=$type, groupId=$groupId',
-    );
-
-    // We will connect group navigation after the
-    // server notification payload is implemented.
+    // Notification-specific navigation can be
+    // added here in a future version.
   }
 
   @override
@@ -105,14 +104,29 @@ class _HomeScreenState extends State<HomeScreen> {
 
     setState(() {});
   }
+  String _nameFromEmail(String? email) {
+    final value = email?.trim() ?? '';
 
+    if (value.isEmpty || !value.contains('@')) {
+      return 'there';
+    }
+
+    final name = value.split('@').first.trim();
+
+    if (name.isEmpty) {
+      return 'there';
+    }
+
+    return name[0].toUpperCase() + name.substring(1);
+  }
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
 
-    final displayName = user?.displayName?.trim().isNotEmpty == true
+    final displayName =
+    user?.displayName?.trim().isNotEmpty == true
         ? user!.displayName!.trim()
-        : 'Usha';
+        : _nameFromEmail(user?.email);
 
     final photoUrl = user?.photoURL ?? '';
 
@@ -159,7 +173,7 @@ class _HomeScreenState extends State<HomeScreen> {
           PopupMenuButton<String>(
             onSelected: (value) {
               if (value == 'logout') {
-                _logout();
+                _logout(context);
               }
             },
             itemBuilder: (_) => const [
@@ -195,7 +209,7 @@ class _HomeScreenState extends State<HomeScreen> {
             displayName: displayName,
             email: user?.email ?? '',
             photoUrl: photoUrl,
-            onLogout: _logout,
+            onLogout: () => _logout(context),
             onProfileUpdated: _refreshProfile,
           ),
         ],
@@ -1129,7 +1143,8 @@ class _ProfileTab extends StatelessWidget {
 
   static Future<void> _showThemeDialog(
       BuildContext context,
-      ) async {
+      ) async
+  {
     final provider = context.read<ThemeProvider>();
 
     final selectedMode = await showDialog<ThemeMode>(
@@ -1179,7 +1194,120 @@ class _ProfileTab extends StatelessWidget {
       provider.setThemeMode(selectedMode);
     }
   }
+  Future<void> _deleteAccount(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Delete account?'),
+          content: const Text(
+            'Your SplitUp account and personal profile data will be permanently '
+                'deleted. Your name will appear as "Deleted user" in shared expense '
+                'history that belongs to other group members.\n\n'
+                'This action cannot be undone.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop(false);
+              },
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop(true);
+              },
+              style: FilledButton.styleFrom(
+                backgroundColor:
+                Theme.of(dialogContext).colorScheme.error,
+                foregroundColor:
+                Theme.of(dialogContext).colorScheme.onError,
+              ),
+              child: const Text('Delete account'),
+            ),
+          ],
+        );
+      },
+    );
 
+    if (confirmed != true || !context.mounted) {
+      return;
+    }
+    final navigator = Navigator.of(context);
+    try {
+      debugPrint('DELETE ACCOUNT: starting');
+
+      await AccountService().deleteCurrentUserAccount();
+
+      debugPrint('DELETE ACCOUNT: completed');
+
+      if (navigator.mounted) {
+        navigator.pushAndRemoveUntil(
+          MaterialPageRoute(
+            builder: (_) => const LoginScreen(),
+          ),
+              (route) => false,
+        );
+      }
+    } on FirebaseAuthException catch (error) {
+      debugPrint(
+        'DELETE ACCOUNT AUTH ERROR: ${error.code} - ${error.message}',
+      );
+
+      if (!context.mounted) return;
+
+      if (error.code == 'requires-recent-login') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'For security, please log out and sign in again, '
+                  'then try deleting your account.',
+            ),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Unable to delete account: '
+                  '${error.message ?? error.code}',
+            ),
+          ),
+        );
+      }
+    } catch (error, stackTrace) {
+      debugPrint('DELETE ACCOUNT ERROR: $error');
+      debugPrint('DELETE ACCOUNT STACK: $stackTrace');
+
+      if (!context.mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Unable to delete account: $error',
+          ),
+        ),
+      );
+    }
+  }
+  Future<void> _openPrivacyPolicy(BuildContext context) async {
+    final uri = Uri.parse(
+      'https://splitup-76ba6.web.app/privacy-policy.html',
+    );
+
+    final opened = await launchUrl(
+      uri,
+      mode: LaunchMode.externalApplication,
+    );
+
+    if (!opened && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Unable to open Privacy Policy.'),
+        ),
+      );
+    }
+  }
   @override
   Widget build(BuildContext context) {
     return ListView(
@@ -1310,7 +1438,29 @@ class _ProfileTab extends StatelessWidget {
             ],
           ),
         ),
+
+        ListTile(
+          leading: const Icon(Icons.privacy_tip_outlined),
+          title: const Text('Privacy Policy'),
+          trailing: const Icon(Icons.open_in_new_rounded),
+          onTap: () => _openPrivacyPolicy(context),
+        ),
         const SizedBox(height: 16),
+
+        OutlinedButton.icon(
+          onPressed: () => _deleteAccount(context),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: Theme.of(context).colorScheme.error,
+            side: BorderSide(
+              color: Theme.of(context).colorScheme.error,
+            ),
+          ),
+          icon: const Icon(Icons.delete_forever_outlined),
+          label: const Text('Delete account'),
+        ),
+
+        const SizedBox(height: 12),
+
         OutlinedButton.icon(
           onPressed: onLogout,
           icon: const Icon(Icons.logout_rounded),

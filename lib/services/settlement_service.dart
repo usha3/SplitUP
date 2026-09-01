@@ -162,6 +162,9 @@ class SettlementService {
     required String fromUserId,
     required String toUserId,
     required double amount,
+    String paymentMethod = 'other',
+    String? proofUrl,
+    String? proofFileName,
   }) async {
     final currentUser = _auth.currentUser;
 
@@ -194,6 +197,9 @@ class SettlementService {
       toUserId: toUserId,
       amount: amount,
       createdBy: currentUser.uid,
+      paymentMethod: paymentMethod,
+      proofUrl: proofUrl,
+      proofFileName: proofFileName,
     );
 
     await document.set(

@@ -9,6 +9,17 @@ class UserService {
     FirebaseFirestore? firestore,
   }) : _firestore = firestore ?? FirebaseFirestore.instance;
 
+  Future<UserModel?> getUserById(String uid) async {
+    final document =
+    await _firestore.collection('users').doc(uid).get();
+
+    if (!document.exists) {
+      return null;
+    }
+
+    return UserModel.fromFirestore(document);
+  }
+
   Future<Map<String, UserModel>> getUsersByIds(
       List<String> ids,
       ) async {
@@ -31,7 +42,10 @@ class UserService {
 
     final snapshot = await _firestore
         .collection('users')
-        .where('email', isEqualTo: normalizedEmail)
+        .where(
+      'email',
+      isEqualTo: normalizedEmail,
+    )
         .limit(1)
         .get();
 
@@ -39,6 +53,8 @@ class UserService {
       return null;
     }
 
-    return UserModel.fromFirestore(snapshot.docs.first);
+    return UserModel.fromFirestore(
+      snapshot.docs.first,
+    );
   }
 }
